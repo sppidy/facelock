@@ -30,9 +30,11 @@ def _read_plane(plane):
 
 
 def _decode_abgr(blob, w, h, stride):
+    # Despite the ABGR8888 label, SoftISP lays out bytes B,G,R,A in memory
+    # (verified: 4th byte saturates = alpha). BGR is the first 3 bytes.
     a = np.frombuffer(blob, dtype=np.uint8).reshape(h, stride)
     px = a[:, :w * 4].reshape(h, w, 4)
-    return px[:, :, 1:4].copy()  # ABGR -> BGR
+    return px[:, :, 0:3].copy()
 
 
 def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=8, timeout=20):
