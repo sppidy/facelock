@@ -1,6 +1,7 @@
 #!/bin/sh
 # pam_exec entry for face-unlock. Any failure -> nonzero -> PAM moves on to
 # the password module. Never blocks login.
+echo "RAN $(date +%T) PAM_USER=${PAM_USER:-empty}" >> /tmp/facelock-dbg.log 2>&1 || true
 CFG=/etc/facelock/config.yaml
 LOG=/var/lib/facelock/pam.log
 # debug: record what PAM actually exports (root-only file)
