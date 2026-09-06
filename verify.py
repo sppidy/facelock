@@ -46,17 +46,27 @@ def attempt_dual(det, rec, cfg, refs):
     strobe = os.path.dirname(led.get("strobe_path", ""))
     pre = flash_state({"fault": strobe + "/flash_fault",
                        "strobe": strobe + "/flash_strobe"}) if strobe else {}
-    fire_strobe(led.get("strobe_path"), led["path"], led["brightness"])
+    fired = {}
+
+    def fire():
+        fire_strobe(led.get("strobe_path"), led["path"], led["brightness"])
+        try:
+            with open(led.get("strobe_path", "")) as f:
+                fired["readback"] = f.read().strip()
+        except OSError:
+            fired["readback"] = "?"
+
     imgs = dual_capture.capture_dual(
         cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
         rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
-        nbuf=d.get("buffers", 8))
+        nbuf=d.get("buffers", 8), on_streaming=fire)
     import numpy as np
     post = flash_state({"fault": strobe + "/flash_fault",
                         "strobe": strobe + "/flash_strobe"}) if strobe else {}
     ir_mean = round(float(np.asarray(imgs["ir"]).mean()), 1) \
         if imgs.get("ir") is not None else -1
-    print(f"flash pre={pre} post={post} ir_mean={ir_mean}")
+    print(f"flash pre={pre} post={post} fired_rb={fired.get('readback', '?')} "
+          f"ir_mean={ir_mean}")
     res = {}
     for src, thresh in (("rgb", m["rgb_threshold"]),
                         ("ir", m["ir_threshold"])):

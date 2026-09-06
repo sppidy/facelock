@@ -82,12 +82,14 @@ def enroll_dual(det, rec, cfg):
     acc = {"rgb": [], "ir": []}
     for i in range(3):
         try:
-            fire_strobe(cfg["ir_led"].get("strobe_path"),
-                        cfg["ir_led"]["path"], cfg["ir_led"]["brightness"])
+            led = cfg["ir_led"]
             imgs = dual_capture.capture_dual(
                 cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
                 rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
-                nbuf=d.get("buffers", 8))
+                nbuf=d.get("buffers", 8),
+                on_streaming=lambda: fire_strobe(
+                    led.get("strobe_path"), led["path"],
+                    led["brightness"]))
         except Exception as e:
             print(f"[dual] burst {i + 1}: capture failed: {e}", flush=True)
             continue

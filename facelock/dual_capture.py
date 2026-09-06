@@ -95,6 +95,8 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25):
         for _, cam, _, _ in jobs:
             cam.start()
         queue_all()
+        if on_streaming is not None:
+            on_streaming()
         got = {}
         deadline = time.time() + timeout
         while time.time() < deadline and len(got) < 2 * nbuf:
