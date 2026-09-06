@@ -47,7 +47,7 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
     cm = CameraManager.singleton()
     cams = {}
 
-    def open_one(match, role, size=None):
+    def open_one(match, role, size=None, want_bufs=8):
         cam = next(c for c in cm.cameras if match in c.id)
         cam.acquire()
         try:
@@ -58,6 +58,10 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
                     sc.size = libcamera.Size(size[0], size[1])
                 except Exception:
                     pass
+            try:
+                sc.buffer_count = want_bufs
+            except Exception:
+                pass
             ret = cam.configure(cfg)
             if ret is not None and ret < 0:
                 raise RuntimeError(f"{match}: configure failed")
@@ -76,16 +80,19 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
     rgb = ir = None
     try:
         rgb, rgb_sc, rgb_alloc, rgb_wh = open_one(
-            rgb_id, StreamRole.Viewfinder, rgb_size)
-        ir, ir_sc, ir_alloc, ir_wh = open_one(ir_id, StreamRole.Raw)
+            rgb_id, StreamRole.Viewfinder, rgb_size, nbuf)
+        ir, ir_sc, ir_alloc, ir_wh = open_one(ir_id, StreamRole.Raw,
+                                             None, nbuf)
         jobs = [("rgb", rgb, rgb_sc, rgb_alloc),
                 ("ir", ir, ir_sc, ir_alloc)]
         cookie = {}
+        targets = {}
         nxt = [1]
 
         def queue_all():
             for idx, (name, cam, sc, alloc) in enumerate(jobs):
                 bufs = alloc.buffers(sc.stream)[:nbuf]
+                targets[name] = len(bufs)
                 for b in bufs:
                     req = cam.create_request(nxt[0])
                     cookie[nxt[0]] = (name, b)
@@ -102,7 +109,8 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
         counts = {"rgb": 0, "ir": 0}
         deadline = time.time() + timeout
         while time.time() < deadline and \
-                (counts["rgb"] < nbuf or counts["ir"] < nbuf):
+                (counts["rgb"] < targets.get("rgb", nbuf) or
+                 counts["ir"] < targets.get("ir", nbuf)):
             select.select([cm.event_fd], [], [], 1.0)
             for req in cm.get_ready_requests():
                 if req.status != req.Status.Complete:
