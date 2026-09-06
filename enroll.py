@@ -76,13 +76,13 @@ def enroll_one_ir(det, rec, cfg):
 def enroll_dual(det, rec, cfg):
     """3 concurrent bursts -> mean embedding per source. Returns dict."""
     from facelock import dual_capture
-    from facelock.ir_capture import fire_strobe
+    from facelock.ir_capture import fire_strobe, set_led
     import numpy as np
     d = cfg.get("dual", {})
+    led = cfg["ir_led"]
     acc = {"rgb": [], "ir": []}
     for i in range(3):
         try:
-            led = cfg["ir_led"]
             imgs = dual_capture.capture_dual(
                 cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
                 rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
@@ -93,6 +93,9 @@ def enroll_dual(det, rec, cfg):
         except Exception as e:
             print(f"[dual] burst {i + 1}: capture failed: {e}", flush=True)
             continue
+        finally:
+            set_led(led.get("strobe_path", ""), 0)
+            set_led(led["path"], 0)
         for src in ("rgb", "ir"):
             v, s = recognize.embed(imgs[src], det, rec,
                                    cfg["match"]["detector_min_score"]) \

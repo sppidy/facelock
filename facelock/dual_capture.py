@@ -99,18 +99,19 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
         if on_streaming is not None:
             on_streaming()
         got = {}
+        counts = {"rgb": 0, "ir": 0}
         deadline = time.time() + timeout
-        while time.time() < deadline and len(got) < 2 * nbuf:
+        while time.time() < deadline and \
+                (counts["rgb"] < nbuf or counts["ir"] < nbuf):
             select.select([cm.event_fd], [], [], 1.0)
             for req in cm.get_ready_requests():
                 if req.status != req.Status.Complete:
                     continue
                 name, fb = cookie.get(req.cookie, (None, None))
-                if name is None or name in got:
-                    # keep last completed buffer per camera
-                    pass
-                if fb is not None:
-                    got[name] = fb
+                if name is None or fb is None:
+                    continue
+                counts[name] = counts.get(name, 0) + 1
+                got[name] = fb  # keep last completed buffer per camera
         # decode last completed buffer per camera
         if "rgb" in got:
             w, h = rgb_wh

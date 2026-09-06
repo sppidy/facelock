@@ -38,7 +38,7 @@ def attempt_dual(det, rec, cfg, refs):
     """Concurrent RGB+IR in one process (staged stack). Returns dict of
     (ok, sim, score) per source. Raises to trigger legacy fallback."""
     from facelock import dual_capture
-    from facelock.ir_capture import fire_strobe
+    from facelock.ir_capture import fire_strobe, set_led
     import os
     m = cfg["match"]
     d = cfg.get("dual", {})
@@ -56,10 +56,14 @@ def attempt_dual(det, rec, cfg, refs):
         except OSError:
             fired["readback"] = "?"
 
-    imgs = dual_capture.capture_dual(
-        cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
-        rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
-        nbuf=d.get("buffers", 8), on_streaming=fire)
+    try:
+        imgs = dual_capture.capture_dual(
+            cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
+            rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
+            nbuf=d.get("buffers", 8), on_streaming=fire)
+    finally:
+        set_led(led.get("strobe_path", ""), 0)
+        set_led(led["path"], 0)
     import numpy as np
     post = flash_state({"fault": strobe + "/flash_fault",
                         "strobe": strobe + "/flash_strobe"}) if strobe else {}
