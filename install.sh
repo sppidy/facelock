@@ -72,12 +72,12 @@ for attr in brightness flash_strobe flash_brightness flash_timeout; do
   sudo chmod 664 "/sys/class/leds/ir:flash/$attr" 2>/dev/null || true
 done
 
-echo '== 5/5 PAM (login sudo hyprlock), backups in /etc/facelock/pam-backup =='
+echo '== 5/5 PAM (greetd login sudo hyprlock), backups in /etc/facelock/pam-backup =='
 if [ "$WIRE_PAM" = 1 ]; then
   [ -f /usr/lib/security/pam_exec.so ] || {
     echo 'missing pam_exec.so, aborting PAM wiring'; exit 1; }
   sudo FACELOCK_PAM_CHECK=/usr/local/lib/facelock/pam_check.sh \
-    /usr/local/bin/facelock-pam-enable login sudo hyprlock
+    /usr/local/bin/facelock-pam-enable greetd login sudo hyprlock
 else
   echo 'skipped (--no-pam). Wire later: sudo facelock-pam-enable login sudo'
 fi

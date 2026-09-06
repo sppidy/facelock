@@ -5,7 +5,7 @@ set -euo pipefail
 if [ "${1:-}" = "--purge" ]; then
   sudo rm -rf /var/lib/facelock /usr/local/share/facelock
 fi
-for svc in login sudo hyprlock; do
+for svc in greetd login sudo hyprlock; do
   b="/etc/facelock/pam-backup/$svc"
   [ -f "$b" ] && sudo cp "$b" "/etc/pam.d/$svc" && echo "$svc: restored"
 done
