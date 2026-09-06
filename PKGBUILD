@@ -46,5 +46,6 @@ package() {
   install -Dm644 99-facelock-ir-led.rules \
     "$pkgdir/usr/lib/udev/rules.d/99-facelock-ir-led.rules"
   install -Dm644 config.yaml "$pkgdir/etc/facelock/config.yaml"
+  # Keep biometric storage private to root; do not embed a build-host video GID.
   install -dm750 "$pkgdir/var/lib/facelock"
 }

@@ -6,6 +6,7 @@ apt-get install -y --no-install-recommends makepkg pacman-package-manager \
   build-essential fakeroot debhelper devscripts python3 git zstd ca-certificates libarchive-tools
 test "$(dpkg --print-architecture)" = arm64
 useradd -m builder
+install -d /var/lib/pacman/local
 install -d -o builder -g builder /build
 cp /out/facelock-source.tar /out/provenance.json /build/
 cp /checkout/ci/build-user.sh /build/
