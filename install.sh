@@ -12,8 +12,10 @@ echo '== 2/5 files =='
 sudo mkdir -p /usr/local/lib/facelock /usr/local/share/facelock \
   /var/lib/facelock /etc/facelock /etc/facelock/pam-backup
 sudo cp -r facelock /usr/local/lib/facelock/
-sudo cp enroll.py verify.py setup_models.py pam_check.sh \
-  /usr/local/lib/facelock/
+sudo cp enroll.py verify.py setup_models.py pam_check.sh dual_test.py \
+  ir_check.py /usr/local/lib/facelock/
+sudo cp facelock-run /usr/local/bin/facelock-run
+sudo chmod 755 /usr/local/bin/facelock-run
 [ -f /etc/facelock/config.yaml ] || sudo cp config.yaml /etc/facelock/config.yaml
 sudo chmod 755 /usr/local/lib/facelock/*.py
 sudo chmod 700 /var/lib/facelock

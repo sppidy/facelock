@@ -17,17 +17,24 @@ import numpy as np
 W, H, STRIDE = 560, 360, 704
 
 
-def unpack_r10(path):
-    a = np.frombuffer(open(path, "rb").read(), np.uint8).reshape(H, STRIDE)
-    d = a[:, :700].reshape(H, 140, 5)
+def unpack_r10_bytes(blob, w=560, h=360, stride=704):
+    """Unpack MIPI CSI-2 10-bit mono to 8-bit gray from raw bytes."""
+    a = np.frombuffer(blob, np.uint8).reshape(h, stride)
+    packed = w * 10 // 8
+    d = a[:, :packed].reshape(h, packed // 5, 5)
     hi = d[..., :4].astype(np.uint16)
     lo = d[..., 4].astype(np.uint16)
-    img = np.empty((H, W), np.uint16)
+    img = np.empty((h, w), np.uint16)
     img[:, 0::4] = (hi[..., 0] << 2) | (lo & 0x3)
     img[:, 1::4] = (hi[..., 1] << 2) | ((lo >> 2) & 0x3)
     img[:, 2::4] = (hi[..., 2] << 2) | ((lo >> 4) & 0x3)
     img[:, 3::4] = (hi[..., 3] << 2) | ((lo >> 6) & 0x3)
-    return (img >> 2).astype(np.uint8)  # 10-bit -> 8-bit gray
+    return (img >> 2).astype(np.uint8)
+
+
+def unpack_r10(path):
+    with open(path, "rb") as f:
+        return unpack_r10_bytes(f.read())
 
 
 def set_led(path, value):

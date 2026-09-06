@@ -24,6 +24,12 @@ fusion:
   # both: capture RGB + IR every attempt (~2s, max reliability, Hello-style)
   # fallback: IR only fires when RGB fails (~1s in good light)
   mode: "both"
+dual:
+  # single-process concurrent capture via staged pycamera (facelock-run).
+  # Falls back to legacy sequential paths when the staged stack is absent.
+  rgb_width: 640
+  rgb_height: 480
+  buffers: 8
 store:
   dir: "/var/lib/facelock"   # <user>.npz, root-owned 0600
 pam:

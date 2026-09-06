@@ -23,6 +23,36 @@ def load_cfg():
     sys.exit("no config.yaml found")
 
 
+def attempt_dual(det, rec, cfg, refs):
+    """Concurrent RGB+IR in one process (staged stack). Returns dict of
+    (ok, sim, score) per source. Raises to trigger legacy fallback."""
+    from facelock import dual_capture
+    from facelock.ir_capture import fire_strobe
+    m = cfg["match"]
+    d = cfg.get("dual", {})
+    fire_strobe(cfg["ir_led"].get("strobe_path"),
+                cfg["ir_led"]["path"], cfg["ir_led"]["brightness"])
+    imgs = dual_capture.capture_dual(
+        cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
+        rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
+        nbuf=d.get("buffers", 8))
+    res = {}
+    for src, thresh in (("rgb", m["rgb_threshold"]),
+                        ("ir", m["ir_threshold"])):
+        img, ref = imgs.get(src), refs.get(src)
+        if img is None or ref is None:
+            res[src] = (False, 0.0, 0.0)
+            continue
+        v, s = recognize.embed(img, det, rec,
+                               cfg["match"]["detector_min_score"])
+        if v is None:
+            res[src] = (False, 0.0, s)
+        else:
+            sim = recognize.similarity(v, ref)
+            res[src] = (sim >= thresh, sim, s)
+    return res
+
+
 def attempt(det, rec, cfg, camera, ref, thresh, use_ir):
     cap = cfg["capture"]
     try:
@@ -61,6 +91,20 @@ def main():
     det, rec = recognize.load_models(cfg["models"]["dir"])
     m = cfg["match"]
     fusion = cfg.get("fusion", {}).get("mode", "fallback")
+    dual = None
+    if os.environ.get("FACELOCK_STAGED"):
+        try:
+            dual = attempt_dual(det, rec, cfg, refs)
+        except Exception as e:
+            print(f"dual path failed, legacy fallback: {e}")
+    if dual is not None:
+        # concurrent path always evaluates both sources
+        for src in ("rgb", "ir"):
+            ok, sim, s = dual[src]
+            if not a.quiet or ok:
+                print(f"{src}: face_score={s:.2f} similarity={sim:.2f} "
+                      f"-> {'MATCH' if ok else 'no match'}")
+        return 0 if (dual["rgb"][0] or dual["ir"][0]) else 1
     rgb_ok, rgb_sim, rgb_s = attempt(
         det, rec, cfg, cfg["cameras"]["rgb"],
         refs.get("rgb"), m["rgb_threshold"], False)
