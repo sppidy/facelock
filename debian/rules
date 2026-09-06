@@ -17,6 +17,6 @@ override_dh_auto_install:
 	install -Dm644 profiles/*.yaml -t debian/facelock/usr/share/facelock/profiles/
 	install -Dm644 config.yaml debian/facelock/usr/share/doc/facelock/config.example.yaml
 	install -Dm644 README.md debian/facelock/usr/share/doc/facelock/README.md
-	install -Dm644 99-facelock-ir-led.rules debian/facelock/lib/udev/rules.d/99-facelock-ir-led.rules
+	install -Dm644 99-facelock-ir-led.rules debian/facelock/usr/lib/udev/rules.d/99-facelock-ir-led.rules
 	install -Dm644 config.yaml debian/facelock/etc/facelock/config.yaml
 	install -dm750 debian/facelock/var/lib/facelock

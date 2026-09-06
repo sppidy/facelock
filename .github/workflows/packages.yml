@@ -2,141 +2,66 @@ name: packages
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
+    branches: ['**']
   schedule:
-    - cron: "0 3 * * *"
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  classify:
-    name: Release or nightly?
-    runs-on: ubuntu-24.04
-    if: github.ref_type == 'branch' || github.event_name != 'push'
+  build:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
     outputs:
-      pkg: ${{ steps.filter.outputs.pkg }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      stable: ${{ steps.prepare.outputs.stable }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            pkg:
-              - 'PKGBUILD'
-              - '.SRCINFO'
-              - 'facelock.install'
-              - 'debian/**'
-
-  arch:
-    name: Arch (aarch64, makepkg)
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build pacman package in Arch Linux ARM container
+          persist-credentials: false
+      - name: Offline tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Classify and archive exact checkout
+        id: prepare
+        run: python3 ci/prepare.py
+      - name: Build and inspect both packages in Debian trixie
         run: |
-          docker run --rm \
-            -v "$PWD:/pkg" -w /pkg \
-            menci/archlinuxarm:base-devel \
-            bash -c "
-              set -eo pipefail
-              pacman-key --init
-              pacman-key --populate archlinuxarm
-              # unprivileged CI containers cannot apply pacman's Landlock sandbox
-              # (must sit in [options], not appended at EOF inside a repo block)
-              grep -q '^DisableSandbox' /etc/pacman.conf || \
-                sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
-              pacman -Sy --noconfirm --needed git python python-opencv python-numpy python-yaml gstreamer gst-plugins-base v4l-utils libcamera pam
-              id builder >/dev/null 2>&1 || useradd -m builder
-              rm -rf /pkg/facelock
-              su builder -c 'git clone --bare -q /pkg /pkg/facelock'
-              chown -R builder:builder /pkg
-              su builder -c 'cd /pkg && makepkg --noconfirm --clean'
-            "
-      - name: Collect artifact
-        run: ls -l ./*.pkg.tar.zst
+          docker pull debian:trixie
+          docker image inspect debian:trixie --format '{{index .RepoDigests 0}}' > dist/builder-image.txt
+          docker run --rm -v "$PWD:/checkout:ro" -v "$PWD/dist:/out" \
+            debian:trixie bash /checkout/ci/build.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: arch-aarch64
-          path: "*.pkg.tar.zst"
+          name: packages-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/*
           if-no-files-found: error
+          retention-days: 14
 
-  debian:
-    name: Debian (arm64, dpkg)
-    runs-on: ubuntu-24.04-arm
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-${{ needs.build.outputs.tag }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - name: Install build deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential fakeroot debhelper
-      - name: Build .deb
-        run: dpkg-buildpackage -b -us -uc
-      - name: Collect artifact
-        run: mv ../*.deb ./ && ls -l ./*.deb
-      - uses: actions/upload-artifact@v4
         with:
-          name: debian-arm64
-          path: "*.deb"
-          if-no-files-found: error
-
-  nightly:
-    name: Nightly prerelease
-    needs: [classify, arch, debian]
-    if: >-
-      github.ref_type != 'tag' &&
-      (github.event_name != 'push' || needs.classify.outputs.pkg != 'true')
-    runs-on: ubuntu-24.04
-    steps:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
+          name: packages-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: nightly
-          name: Nightly packages
-          prerelease: true
-          files: dist/*
-
-  release-pkg:
-    name: Packaging-change release
-    needs: [classify, arch, debian]
-    if: >-
-      github.ref_type == 'branch' &&
-      github.event_name == 'push' &&
-      needs.classify.outputs.pkg == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - name: Date tag
-        id: tag
-        run: echo "tag=pkg-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: Packaging ${{ steps.tag.outputs.tag }}
-          generate_release_notes: true
-          files: dist/*
-
-  release-tag:
-    name: Tag release
-    needs: [arch, debian]
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          generate_release_notes: true
+      - name: Publish draft, verify remote bytes, then expose release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_STABLE: ${{ needs.build.outputs.stable }}
+        run: python3 ci/publish.py

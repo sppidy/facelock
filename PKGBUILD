@@ -1,11 +1,11 @@
 # Maintainer: sppidy
-# Upstream git URL — point this at your own host. The AUR recipe cannot use
-# a private repo URL because builders fetch anonymously.
+# AUR uses the immutable packaging release tag; CI supplies a checksummed
+# archive of the exact checkout, without fetching an older upstream tag.
 _giturl="https://github.com/sppidy/facelock.git"
-_gittag="v${pkgver}"
 pkgname=facelock
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
+_gittag="v${pkgver}-${pkgrel}"
 pkgdesc="Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops"
 arch=('any')
 url="https://github.com/sppidy/facelock"
@@ -16,10 +16,17 @@ optdepends=('python-libcamera: concurrent dual-sensor capture'
             'gst-plugin-libcamera: libcamera cameras over GStreamer'
             'gst-plugins-good: UVC webcams over GStreamer (v4l2src)'
             'hyprlock: face unlock on the Hyprland lock screen')
-makedepends=('git')
+makedepends=('git' 'tar')
 backup=('etc/facelock/config.yaml')
-source=("git+${_giturl}#tag=${_gittag}")
-sha256sums=('SKIP')
+if [[ -n ${FACELOCK_SOURCE_ARCHIVE:-} ]]; then
+  : "${FACELOCK_SOURCE_SHA256:?local source requires SHA256}"
+  source=("$FACELOCK_SOURCE_ARCHIVE")
+  sha256sums=("$FACELOCK_SOURCE_SHA256")
+  pkgver=${FACELOCK_PACKAGE_VERSION:-$pkgver}
+else
+  source=("git+${_giturl}#tag=${_gittag}")
+  sha256sums=('SKIP')
+fi
 install=facelock.install
 
 package() {
@@ -38,5 +45,5 @@ package() {
   install -Dm644 99-facelock-ir-led.rules \
     "$pkgdir/usr/lib/udev/rules.d/99-facelock-ir-led.rules"
   install -Dm644 config.yaml "$pkgdir/etc/facelock/config.yaml"
-  install -dm750 -g video "$pkgdir/var/lib/facelock"
+  install -dm750 "$pkgdir/var/lib/facelock"
 }

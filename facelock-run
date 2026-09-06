@@ -2,8 +2,8 @@
 # facelock-run: execute face-unlock entry points under the staged dual
 # camera stack when present, else plain system python (legacy paths).
 # Safe for PAM: never fails itself, execs python either way.
-STAGED="${FACELOCK_STAGED:-/home/spidy/scratch/x1p-concurrency-20260906}"
-if [ -f "$STAGED/build/src/libcamera/libcamera.so.0.7.1" ]; then
+STAGED="${FACELOCK_STAGED:-}"
+if [ -n "$STAGED" ] && [ -f "$STAGED/build/src/libcamera/libcamera.so.0.7.1" ]; then
     LD_LIBRARY_PATH="$STAGED/build/src/libcamera${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export LD_LIBRARY_PATH
     PYTHONPATH="$STAGED/build/src/py${PYTHONPATH:+:$PYTHONPATH}"
@@ -15,4 +15,4 @@ if [ -f "$STAGED/build/src/libcamera/libcamera.so.0.7.1" ]; then
     FACELOCK_STAGED="$STAGED"
     export FACELOCK_STAGED
 fi
-exec /usr/bin/python "$@"
+exec /usr/bin/python3 "$@"

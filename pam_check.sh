@@ -20,5 +20,5 @@ WANT=$(grep -E '^\s*user:' "$CFG" 2>/dev/null | head -1 | awk '{print $2}' | tr 
 [ -n "$WANT" ] && [ "$CANDIDATE" = "$WANT" ] || exit 1
 # relocatable: works from /usr/local (dev install) and /usr (packages)
 LIBDIR=$(dirname "$(readlink -f "$0")")
-exec "$LIBDIR/../bin/facelock-run" "$LIBDIR/verify.py" \
+exec "$LIBDIR/../../bin/facelock-run" "$LIBDIR/verify.py" \
   --quiet --user "$CANDIDATE" >>"$LOG" 2>&1
