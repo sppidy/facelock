@@ -139,10 +139,13 @@ def main():
     det, rec = recognize.load_models(cfg["models"]["dir"])
     m = cfg["match"]
     fusion = cfg.get("fusion", {}).get("mode", "fallback")
+    import time as _t
     dual = None
     if os.environ.get("FACELOCK_STAGED"):
+        t0 = _t.time()
         try:
             dual = attempt_dual(det, rec, cfg, refs)
+            print(f"dual capture took {_t.time() - t0:.1f}s")
         except Exception as e:
             print(f"dual path failed, legacy fallback: {e}")
     if dual is not None:
