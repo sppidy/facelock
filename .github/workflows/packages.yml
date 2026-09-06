@@ -53,6 +53,10 @@ jobs:
               pacman -Sy --noconfirm --needed git python python-opencv python-numpy python-yaml gstreamer gst-plugins-base v4l-utils libcamera pam
               id builder >/dev/null 2>&1 || useradd -m builder
               chown -R builder:builder /pkg
+              # seed the bare repo exactly where makepkg expects it so the
+              # git-source update/working-copy steps stay local-first
+              su builder -c 'git clone --bare -q /pkg /pkg/facelock 2>/dev/null || true'
+              chown -R builder:builder /pkg
               su builder -c 'cd /pkg && makepkg --noconfirm --clean'
             "
       - name: Collect artifact
