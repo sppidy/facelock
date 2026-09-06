@@ -11,9 +11,14 @@ sudo pacman -S --needed --noconfirm \
 echo '== 2/5 files =='
 sudo mkdir -p /usr/local/lib/facelock /usr/local/share/facelock \
   /var/lib/facelock /etc/facelock /etc/facelock/pam-backup
-sudo cp -r facelock /usr/local/lib/facelock/
+# replace (not merge) so stale files can never survive an install
+sudo rm -rf /usr/local/lib/facelock/facelock \
+  /usr/local/lib/facelock/__pycache__
+sudo cp -r facelock /usr/local/lib/facelock/facelock
 sudo cp enroll.py verify.py setup_models.py pam_check.sh dual_test.py \
   ir_check.py /usr/local/lib/facelock/
+sudo sha256sum /usr/local/lib/facelock/verify.py \
+  /usr/local/lib/facelock/facelock/dual_capture.py | head -4
 sudo cp facelock-run /usr/local/bin/facelock-run
 sudo chmod 755 /usr/local/bin/facelock-run
 [ -f /etc/facelock/config.yaml ] || sudo cp config.yaml /etc/facelock/config.yaml

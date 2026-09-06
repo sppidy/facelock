@@ -108,8 +108,12 @@ def attempt(det, rec, cfg, camera, ref, thresh, use_ir):
     return sim >= thresh, sim, s
 
 
+VERIFY_TAG = "verify-dualfix3"
+
+
 def main():
     ap = argparse.ArgumentParser()
+    print(f"facelock {VERIFY_TAG}", flush=True)
     ap.add_argument("--user", default=os.environ.get("SUDO_USER")
                     or getpass.getuser())
     ap.add_argument("--quiet", action="store_true")
