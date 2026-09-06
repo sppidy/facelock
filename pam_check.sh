@@ -9,6 +9,9 @@ DBG=/tmp/facelock-dbg.log
 {
   echo "--- $(date +%T) service=${PAM_SERVICE:-?} PU=${PAM_USER:--} PR=${PAM_RUSER:-=} SU=${SUDO_USER:-=} PPID=$PPID"
   echo "PPID_UID=$(awk '/^Uid:/{print $2}' /proc/$PPID/status 2>/dev/null)"
+  id
+  grep -E "^(Cap|NoNewPrivs)" /proc/self/status
+  readlink /proc/self/ns/user
 } >> $DBG 2>&1 || true
 # debug: record what PAM actually exports (root-only file)
 { echo "--- $(date +%T) PAM_SERVICE=$PAM_SERVICE PAM_TYPE=$PAM_TYPE"; env | grep -E "^(PAM_|SUDO_|USER=|LOGNAME=)" | sort; } >> /var/lib/facelock/env.log 2>&1 || true
