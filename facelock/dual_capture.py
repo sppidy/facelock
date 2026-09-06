@@ -37,7 +37,7 @@ def _decode_abgr(blob, w, h, stride):
     return px[:, :, 0:3].copy()
 
 
-def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=8, timeout=20):
+def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25):
     """Returns {'rgb': bgr|None, 'ir': bgr|None}. Never returns Nones pair
     without raising."""
     import libcamera
