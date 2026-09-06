@@ -114,12 +114,12 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=8, timeout=20):
             stride = len(blob) // h
             out["rgb"] = _decode_abgr(blob, w, h, stride)
         if "ir" in got:
-            from facelock.ir_capture import unpack_r10
+            from facelock.ir_capture import unpack_r10_bytes
             w, h = ir_wh
             planes = _planes(got["ir"])
             blob = _read_plane(planes[0])
             stride = len(blob) // h
-            gray = unpack_r10(blob, w, h, stride)
+            gray = unpack_r10_bytes(blob, w, h, stride)
             out["ir"] = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     finally:
         for cam in (rgb, ir):
