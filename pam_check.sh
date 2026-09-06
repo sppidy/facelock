@@ -3,8 +3,15 @@
 # the password module. Never blocks login.
 CFG=/etc/facelock/config.yaml
 LOG=/var/lib/facelock/pam.log
-[ -n "$PAM_USER" ] || exit 1
+# debug: record what PAM actually exports (root-only file)
+{ echo "--- $(date +%T) PAM_SERVICE=$PAM_SERVICE PAM_TYPE=$PAM_TYPE"; env | grep -E "^(PAM_|SUDO_|USER=|LOGNAME=)" | sort; } >> /var/lib/facelock/env.log 2>&1 || true
+# resolve invoking user without trusting a single variable
+CANDIDATE="${PAM_USER:-}"
+[ -n "$CANDIDATE" ] || CANDIDATE="${PAM_RUSER:-}"
+[ -n "$CANDIDATE" ] || CANDIDATE="${SUDO_USER:-}"
+[ -n "$CANDIDATE" ] || CANDIDATE="$(logname 2>/dev/null)"
+[ -n "$CANDIDATE" ] || exit 1
 WANT=$(grep -E '^\s*user:' "$CFG" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
-[ -n "$WANT" ] && [ "$PAM_USER" = "$WANT" ] || exit 1
+[ -n "$WANT" ] && [ "$CANDIDATE" = "$WANT" ] || exit 1
 exec /usr/local/bin/facelock-run /usr/local/lib/facelock/verify.py \
-  --quiet --user "$PAM_USER" >>"$LOG" 2>&1
+  --quiet --user "$CANDIDATE" >>"$LOG" 2>&1
