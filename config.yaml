@@ -1,0 +1,31 @@
+# Copy to /etc/facelock/config.yaml by install.sh. Fill in `ir` via detect_cameras.sh.
+cameras:
+  rgb: "/base/soc@0/cci@ac16000/i2c-bus@1/camera@36"  # ov02c10
+  ir: "/base/soc@0/cci@ac15000/i2c-bus@0/camera@24"  # hm1092 mono IR (raw path)
+ir_capture:
+  frames: 10       # cam captures this many, last one is used
+  black_mean_min: 2.0
+capture:
+  width: 640
+  height: 480
+  warmup_sec: 1.5   # stream warm-up per attempt so AEGC settles
+  timeout_sec: 30
+ir_led:
+  path: "/sys/class/leds/ir:flash/brightness"   # torch (weak); fallback only
+  strobe_path: "/sys/class/leds/ir:flash/flash_strobe"  # real 700mA flash
+  brightness: 128      # torch level if strobe unavailable
+models:
+  dir: "/usr/local/share/facelock/models"
+match:
+  rgb_threshold: 0.38  # SFace cosine similarity; tune per user
+  ir_threshold: 0.30   # relaxed: IR domain vs RGB-trained model
+  detector_min_score: 0.6
+fusion:
+  # both: capture RGB + IR every attempt (~2s, max reliability, Hello-style)
+  # fallback: IR only fires when RGB fails (~1s in good light)
+  mode: "both"
+store:
+  dir: "/var/lib/facelock"   # <user>.npz, root-owned 0600
+pam:
+  user: "spidy"        # only attempt for this user; everyone else ignored
+  verify_timeout_sec: 25

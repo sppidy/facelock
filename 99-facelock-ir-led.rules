@@ -1,0 +1,6 @@
+# ir:flash is a flash-class LED: torch `brightness` is weak by design, the
+# real illuminator fires via `flash_strobe` at `flash_brightness` current.
+# MODE/GROUP don't propagate to LED class attrs, so set them via RUN.
+SUBSYSTEM=="leds", KERNEL=="ir:flash", \
+  RUN+="/usr/bin/chgrp video /sys%p/brightness /sys%p/flash_strobe /sys%p/flash_brightness /sys%p/flash_timeout", \
+  RUN+="/usr/bin/chmod 0664 /sys%p/brightness /sys%p/flash_strobe /sys%p/flash_brightness /sys%p/flash_timeout"
