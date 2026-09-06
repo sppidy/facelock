@@ -18,5 +18,7 @@ fi
 [ -n "$CANDIDATE" ] || exit 1
 WANT=$(grep -E '^\s*user:' "$CFG" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
 [ -n "$WANT" ] && [ "$CANDIDATE" = "$WANT" ] || exit 1
-exec /usr/local/bin/facelock-run /usr/local/lib/facelock/verify.py \
+# relocatable: works from /usr/local (dev install) and /usr (packages)
+LIBDIR=$(dirname "$(readlink -f "$0")")
+exec "$LIBDIR/../bin/facelock-run" "$LIBDIR/verify.py" \
   --quiet --user "$CANDIDATE" >>"$LOG" 2>&1

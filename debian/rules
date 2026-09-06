@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_build:
+	@echo "nothing to compile (Python + shell)"
+
+override_dh_auto_install:
+	install -Dm755 facelock-run debian/facelock/usr/bin/facelock-run
+	install -Dm755 facelock-detect debian/facelock/usr/bin/facelock-detect
+	install -Dm755 facelock-pam-enable debian/facelock/usr/bin/facelock-pam-enable
+	install -Dm755 setup_models.py debian/facelock/usr/lib/facelock/setup_models.py
+	install -Dm755 enroll.py debian/facelock/usr/lib/facelock/enroll.py
+	install -Dm755 verify.py debian/facelock/usr/lib/facelock/verify.py
+	install -Dm755 pam_check.sh debian/facelock/usr/lib/facelock/pam_check.sh
+	install -Dm644 facelock/*.py -t debian/facelock/usr/lib/facelock/facelock/
+	install -Dm644 profiles/*.yaml -t debian/facelock/usr/share/facelock/profiles/
+	install -Dm644 config.yaml debian/facelock/usr/share/doc/facelock/config.example.yaml
+	install -Dm644 README.md debian/facelock/usr/share/doc/facelock/README.md
+	install -Dm644 99-facelock-ir-led.rules debian/facelock/lib/udev/rules.d/99-facelock-ir-led.rules
+	install -Dm644 config.yaml debian/facelock/etc/facelock/config.yaml
+	install -dm750 -o root -g video debian/facelock/var/lib/facelock

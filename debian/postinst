@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+case "$1" in
+  configure)
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger --subsystem-match=leds --action=change 2>/dev/null || true
+    echo "facelock: pick a profile from /usr/share/facelock/profiles/ into"
+    echo "  /etc/facelock/config.yaml, set pam.user, then run:"
+    echo "  sudo python3 /usr/lib/facelock/setup_models.py"
+    echo "  sudo facelock-run /usr/lib/facelock/enroll.py"
+    echo "  sudo facelock-pam-enable login"
+    ;;
+esac
+#DEBHELPER#
+exit 0

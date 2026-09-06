@@ -37,8 +37,6 @@ package() {
   install -Dm644 README.md "$pkgdir/usr/share/doc/facelock/README.md"
   install -Dm644 99-facelock-ir-led.rules \
     "$pkgdir/usr/lib/udev/rules.d/99-facelock-ir-led.rules"
-  install -Dm600 /dev/null "$pkgdir/etc/facelock/config.yaml"
-  cp config.yaml "$pkgdir/etc/facelock/config.yaml"
-  chmod 644 "$pkgdir/etc/facelock/config.yaml"
+  install -Dm644 config.yaml "$pkgdir/etc/facelock/config.yaml"
   install -dm750 -g video "$pkgdir/var/lib/facelock"
 }

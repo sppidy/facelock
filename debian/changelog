@@ -1,0 +1,5 @@
+facelock (0.1.0) unstable; urgency=medium
+
+  * Concurrent RGB+IR capture, machine profiles, PAM integration.
+
+ -- sppidy <sppidytg@gmail.com>  Sat, 06 Sep 2026 00:00:00 +0000
