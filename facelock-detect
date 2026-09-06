@@ -33,6 +33,8 @@ def main():
         print(f"# {out.strip().splitlines()[0] if out.strip() else 'cam?'}")
         print("# cameras (cam -l):")
         for line in run(["cam", "-l"]).splitlines():
+            if line.startswith("["):
+                continue
             if "camera@" in line or "Available" in line:
                 print(f"#   {line.strip()}")
     if have("gst-inspect-1.0"):
