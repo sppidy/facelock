@@ -24,6 +24,15 @@ sudo chmod 755 /usr/local/bin/facelock-run
 [ -f /etc/facelock/config.yaml ] || sudo cp config.yaml /etc/facelock/config.yaml
 sudo chmod 755 /usr/local/lib/facelock/*.py \
   /usr/local/lib/facelock/pam_check.sh
+# store/log must be group-accessible: sudo runs PAM auth helpers as the
+# invoking user (uid 1000, zero caps), not as root
+sudo chgrp video /var/lib/facelock
+sudo chmod 750 /var/lib/facelock
+sudo touch /var/lib/facelock/pam.log /var/lib/facelock/env.log
+sudo chgrp video /var/lib/facelock/pam.log /var/lib/facelock/env.log
+sudo chmod 640 /var/lib/facelock/pam.log /var/lib/facelock/env.log
+sudo chgrp video /var/lib/facelock/*.npz 2>/dev/null || true
+sudo chmod 640 /var/lib/facelock/*.npz 2>/dev/null || true
 sudo chmod 700 /var/lib/facelock
 
 echo '== 3/5 models =='

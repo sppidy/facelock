@@ -1,15 +1,42 @@
-"""Root-owned 0600 embedding store."""
+"""Embedding store.
+
+Layout is group-readable by `video` (not root-only): sudo runs PAM auth
+helpers as the *invoking* user, so face-unlock must read embeddings and
+append logs without root. The video group on this box is just the owner.
+"""
+import grp
 import os
 
 import numpy as np
+
+STORE_MODE_DIR = 0o750
+STORE_MODE_FILE = 0o640
+STORE_GROUP = "video"
+
+
+def _group_to(path):
+    try:
+        gid = grp.getgrnam(STORE_GROUP).gr_gid
+        os.chown(path, -1, gid)
+    except (KeyError, PermissionError, OSError):
+        pass
 
 
 def _path(store_dir, user):
     return os.path.join(store_dir, f"{user}.npz")
 
 
+def ensure_dir(store_dir):
+    os.makedirs(store_dir, mode=STORE_MODE_DIR, exist_ok=True)
+    try:
+        os.chmod(store_dir, STORE_MODE_DIR)
+    except OSError:
+        pass
+    _group_to(store_dir)
+
+
 def save(store_dir, user, rgb=None, ir=None):
-    os.makedirs(store_dir, mode=0o700, exist_ok=True)
+    ensure_dir(store_dir)
     data = {}
     if rgb is not None:
         data["rgb"] = np.asarray(rgb, dtype=np.float64)
@@ -17,7 +44,11 @@ def save(store_dir, user, rgb=None, ir=None):
         data["ir"] = np.asarray(ir, dtype=np.float64)
     p = _path(store_dir, user)
     np.savez(p, **data)
-    os.chmod(p, 0o600)
+    try:
+        os.chmod(p, STORE_MODE_FILE)
+    except OSError:
+        pass
+    _group_to(p)
 
 
 def load(store_dir, user):

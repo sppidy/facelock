@@ -17,8 +17,9 @@ webcam: Qualcomm CAMSS / libcamera `simple`-pipeline sensors (here:
 
 v1 is **convenience login**, not spoof-proof auth: no depth/liveness
 check yet (IR presence match only). PAM entries are `sufficient`, so the
-password path always still works. Embeddings live root-owned `0600` in
-`/var/lib/facelock/`.
+password path always still works. Embeddings live `0640 root:video` in
+`/var/lib/facelock/` — group-readable (not root-only) because sudo runs PAM
+auth helpers as the invoking user, not as root.
 
 ## Layout
 
