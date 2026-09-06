@@ -1,4 +1,8 @@
 # Maintainer: sppidy
+# Upstream git URL — point this at your own host. The AUR recipe cannot use
+# a private repo URL because builders fetch anonymously.
+_giturl="https://github.com/sppidy/facelock.git"
+_gittag="v${pkgver}"
 pkgname=facelock
 pkgver=0.1.0
 pkgrel=1
@@ -14,7 +18,7 @@ optdepends=('python-libcamera: concurrent dual-sensor capture'
             'hyprlock: face unlock on the Hyprland lock screen')
 makedepends=('git')
 backup=('etc/facelock/config.yaml')
-source=("git+https://github.com/sppidy/facelock.git#tag=v${pkgver}")
+source=("git+${_giturl}#tag=${_gittag}")
 sha256sums=('SKIP')
 install=facelock.install
 
