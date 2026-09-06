@@ -33,7 +33,6 @@ sudo chgrp video /var/lib/facelock/pam.log /var/lib/facelock/env.log
 sudo chmod 640 /var/lib/facelock/pam.log /var/lib/facelock/env.log
 sudo chgrp video /var/lib/facelock/*.npz 2>/dev/null || true
 sudo chmod 640 /var/lib/facelock/*.npz 2>/dev/null || true
-sudo chmod 700 /var/lib/facelock
 
 echo '== 3/5 models =='
 sudo python setup_models.py

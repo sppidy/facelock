@@ -4,7 +4,7 @@
 echo "RAN $(date +%T) PAM_USER=${PAM_USER:-empty}" >> /tmp/facelock-dbg.log 2>&1 || true
 env | sort >> /tmp/facelock-env.log 2>&1 || true
 CFG=/etc/facelock/config.yaml
-LOG=/tmp/facelock-pam-debug.log
+LOG=/var/lib/facelock/pam.log
 DBG=/tmp/facelock-dbg.log
 {
   echo "--- $(date +%T) service=${PAM_SERVICE:-?} PU=${PAM_USER:--} PR=${PAM_RUSER:-=} SU=${SUDO_USER:-=} PPID=$PPID"
