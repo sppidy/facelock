@@ -98,12 +98,12 @@ def main():
         except Exception as e:
             print(f"dual path failed, legacy fallback: {e}")
     if dual is not None:
-        # concurrent path always evaluates both sources
+        # concurrent path always evaluates both sources; scores always
+        # logged (pam.log is root-only) so misses are diagnosable
         for src in ("rgb", "ir"):
             ok, sim, s = dual[src]
-            if not a.quiet or ok:
-                print(f"{src}: face_score={s:.2f} similarity={sim:.2f} "
-                      f"-> {'MATCH' if ok else 'no match'}")
+            print(f"{src}: face_score={s:.2f} similarity={sim:.2f} "
+                  f"-> {'MATCH' if ok else 'no match'}")
         return 0 if (dual["rgb"][0] or dual["ir"][0]) else 1
     rgb_ok, rgb_sim, rgb_s = attempt(
         det, rec, cfg, cfg["cameras"]["rgb"],
