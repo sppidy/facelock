@@ -2,6 +2,8 @@
 set -e
 case "$1" in
   configure)
+    chgrp video /var/lib/facelock 2>/dev/null || true
+    chmod 750 /var/lib/facelock 2>/dev/null || true
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger --subsystem-match=leds --action=change 2>/dev/null || true
     echo "facelock: pick a profile from /usr/share/facelock/profiles/ into"

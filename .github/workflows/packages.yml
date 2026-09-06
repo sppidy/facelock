@@ -43,8 +43,10 @@ jobs:
             -v "$PWD:/pkg" -w /pkg \
             menci/archlinuxarm:base-devel \
             bash -c "
-              set -e
-              pacman -Sy --noconfirm --needed git python python-opencv python-numpy python-yaml gstreamer gst-plugins-base v4l-utils libcamera pam 2>&1 | tail -1
+              set -eo pipefail
+              pacman-key --init
+              pacman-key --populate archlinuxarm
+              pacman -Sy --noconfirm --needed git python python-opencv python-numpy python-yaml gstreamer gst-plugins-base v4l-utils libcamera pam
               id builder >/dev/null 2>&1 || useradd -m builder
               chown -R builder:builder /pkg
               su builder -c 'cd /pkg && makepkg --noconfirm --clean'
