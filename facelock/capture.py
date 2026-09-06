@@ -9,16 +9,22 @@ import numpy as np
 
 def snapshot(camera, width=640, height=480, warmup_sec=1.5,
              path="/tmp/facelock_frame.raw", timeout=30):
-    """Capture one BGR frame (last frame after warm-up). Returns ndarray."""
+    """Capture one BGR frame (last frame after warm-up). Returns ndarray.
+
+    camera is either a libcamera camera-name, or 'uvc:/dev/videoN' for
+    plain USB webcams (uses v4l2src, no libcamera needed).
+    """
     frame_bytes = width * height * 3
     for p in (path, path + ".log"):
         try:
             os.remove(p)
         except OSError:
             pass
-    cmd = [
-        "gst-launch-1.0", "-q",
-        "libcamerasrc", f"camera-name={camera}",
+    if camera.startswith("uvc:"):
+        src = ["v4l2src", f"device={camera[4:]}"]
+    else:
+        src = ["libcamerasrc", f"camera-name={camera}"]
+    cmd = ["gst-launch-1.0", "-q"] + src + [
         "!", "videoconvert", "!", "videoscale", "!",
         f"video/x-raw,format=BGR,width={width},height={height}",
         "!", "filesink", f"location={path}",

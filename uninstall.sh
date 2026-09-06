@@ -10,5 +10,7 @@ for svc in login sudo hyprlock; do
   [ -f "$b" ] && sudo cp "$b" "/etc/pam.d/$svc" && echo "$svc: restored"
 done
 sudo rm -rf /usr/local/lib/facelock /etc/udev/rules.d/99-facelock-ir-led.rules
+sudo rm -f /usr/local/bin/facelock-run /usr/local/bin/facelock-detect \
+  /usr/local/bin/facelock-pam-enable
 sudo udevadm control --reload-rules || true
 echo 'removed (config in /etc/facelock kept for reference)'

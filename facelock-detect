@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""facelock-detect: probe this machine and print a starter profile.
+Stdlib only. Never fails: every probe is best-effort.
+Usage: facelock-detect [--write profiles/<name>.yaml]
+"""
+import glob
+import os
+import shutil
+import subprocess
+import sys
+
+
+def run(cmd, timeout=15):
+    try:
+        r = subprocess.run(cmd, timeout=timeout, capture_output=True,
+                           text=True)
+        return r.stdout + r.stderr
+    except Exception as e:
+        return f"<unavailable: {e}>"
+
+
+def have(cmd):
+    return shutil.which(cmd) is not None
+
+
+def main():
+    print("# facelock-detect output — paste into profiles/<machine>.yaml")
+    print(f"# arch={os.uname().machine}",
+          f"libcamera={have('cam')}, gst={have('gst-inspect-1.0')}, "
+          f"v4l2={have('v4l2-ctl')}")
+    if have("cam"):
+        out = run(["cam", "--version"])
+        print(f"# {out.strip().splitlines()[0] if out.strip() else 'cam?'}")
+        print("# cameras (cam -l):")
+        for line in run(["cam", "-l"]).splitlines():
+            if "camera@" in line or "Available" in line:
+                print(f"#   {line.strip()}")
+    if have("gst-inspect-1.0"):
+        for el in ("libcamerasrc", "v4l2src", "videoconvert", "filesink"):
+            ok = run(["gst-inspect-1.0", el]).startswith("Factory Details")
+            print(f"# gst {el}: {'yes' if ok else 'NO'}")
+    if have("v4l2-ctl"):
+        print("# v4l2 devices:")
+        dev, name = None, None
+        for line in (run(["v4l2-ctl", "--list-devices"]) + "\n").splitlines():
+            if not line.startswith((" ", "\t")) and line.strip():
+                name = line.strip().rstrip(":")
+            elif "/dev/video" in line:
+                print(f"#   {line.strip()}  ({name})")
+    leds = sorted(glob.glob("/sys/class/leds/*"))
+    print(f"# leds: {', '.join(os.path.basename(l) for l in leds) or 'none'}")
+    for led in leds:
+        if os.path.exists(os.path.join(led, "flash_strobe")):
+            print(f"# IR flash candidate: {led} "
+                  f"(max={open(os.path.join(led, 'max_brightness')).read().strip()})")
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import libcamera; coils=[m for m in dir(libcamera.Camera)]; "
+         "print('snake' if 'generate_configuration' in coils else "
+         "('camel' if 'generateConfiguration' in coils else 'none'))"],
+        capture_output=True, text=True)
+    api = (r.stdout or "").strip().splitlines()
+    print(f"# pycamera api: {api[-1] if api else 'not installed'}")
+    r2 = subprocess.run(
+        [sys.executable, "-c", "import cv2; print('yes')"],
+        capture_output=True, text=True)
+    print(f"# python-opencv: {'yes' if 'yes' in r2.stdout else 'NO'}")
+    print("# suggested: start from profiles/_template.yaml or "
+          "profiles/generic-uvc.yaml")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -15,6 +15,14 @@ import cv2
 import numpy as np
 
 
+def _m(obj, *names):
+    """First matching attribute (snake_case 0.7.1 vs camelCase bindings)."""
+    for n in names:
+        if hasattr(obj, n):
+            return getattr(obj, n)
+    raise AttributeError(f"none of {names} on {type(obj).__name__}")
+
+
 def _planes(fb):
     p = getattr(fb, "planes", None)
     return p() if callable(p) else p
@@ -46,12 +54,15 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
 
     cm = CameraManager.singleton()
     cams = {}
+    _cams = getattr(cm, "cameras", None)
+    _cam_list = _cams() if callable(_cams) else _cams
 
     def open_one(match, role, size=None, want_bufs=8):
-        cam = next(c for c in cm.cameras if match in c.id)
-        cam.acquire()
+        cam = next(c for c in _cam_list if match in c.id)
+        _m(cam, "acquire")()
         try:
-            cfg = cam.generate_configuration([role])
+            cfg = _m(cam, "generate_configuration",
+                      "generateConfiguration")([role])
             sc = cfg.at(0)
             if size is not None:
                 try:
@@ -61,19 +72,26 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
             try:
                 sc.buffer_count = want_bufs
             except Exception:
-                pass
-            ret = cam.configure(cfg)
+                try:
+                    sc.bufferCount = want_bufs
+                except Exception:
+                    pass
+            ret = _m(cam, "configure")(cfg)
             if ret is not None and ret < 0:
                 raise RuntimeError(f"{match}: configure failed")
             sc = cfg.at(0)  # re-read (driver may adjust)
             alloc = FrameBufferAllocator(cam)
-            n = alloc.allocate(sc.stream)
+            n = _m(alloc, "allocate")(sc.stream)
             if n is not None and n <= 0:
                 raise RuntimeError(f"{match}: allocate failed")
-            w, h = sc.size.width, sc.size.height
+            sz = getattr(sc, "size", None) or getattr(sc, "size_", None)
+            w, h = (sz.width, sz.height) if sz is not None else (0, 0)
             return cam, sc, alloc, (w, h)
         except Exception:
-            cam.release()
+            try:
+                _m(cam, "release")()
+            except Exception:
+                pass
             raise
 
     out = {"rgb": None, "ir": None}
@@ -91,31 +109,37 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
 
         def queue_all():
             for idx, (name, cam, sc, alloc) in enumerate(jobs):
-                bufs = alloc.buffers(sc.stream)[:nbuf]
+                bufs = _m(alloc, "buffers")(sc.stream)[:nbuf]
                 targets[name] = len(bufs)
                 for b in bufs:
-                    req = cam.create_request(nxt[0])
+                    req = _m(cam, "create_request",
+                             "createRequest")(nxt[0])
                     cookie[nxt[0]] = (name, b)
                     nxt[0] += 1
-                    req.add_buffer(sc.stream, b)
-                    cam.queue_request(req)
+                    _m(req, "add_buffer", "addBuffer")(sc.stream, b)
+                    _m(cam, "queue_request", "queueRequest")(req)
 
         for _, cam, _, _ in jobs:
-            cam.start()
+            _m(cam, "start")()
         queue_all()
         if on_streaming is not None:
             on_streaming()
         got = {}
         counts = {"rgb": 0, "ir": 0}
+        evfd = _m(cm, "event_fd", "eventFd")
+        ready = _m(cm, "get_ready_requests", "getReadyRequests")
         deadline = time.time() + timeout
         while time.time() < deadline and \
                 (counts["rgb"] < targets.get("rgb", nbuf) or
                  counts["ir"] < targets.get("ir", nbuf)):
-            select.select([cm.event_fd], [], [], 1.0)
-            for req in cm.get_ready_requests():
-                if req.status != req.Status.Complete:
+            select.select([evfd() if callable(evfd) else evfd], [], [], 1.0)
+            for req in ready():
+                st = _m(req, "status")
+                complete = getattr(getattr(req, "Status", req),
+                                   "Complete", None)
+                if complete is not None and st != complete:
                     continue
-                name, fb = cookie.get(req.cookie, (None, None))
+                name, fb = cookie.get(_m(req, "cookie"), (None, None))
                 if name is None or fb is None:
                     continue
                 counts[name] = counts.get(name, 0) + 1
@@ -138,14 +162,11 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
     finally:
         for cam in (rgb, ir):
             if cam is not None:
-                try:
-                    cam.stop()
-                except Exception:
-                    pass
-                try:
-                    cam.release()
-                except Exception:
-                    pass
+                for op in ("stop", "release"):
+                    try:
+                        _m(cam, op)()
+                    except Exception:
+                        pass
     if out["rgb"] is None and out["ir"] is None:
         raise RuntimeError("dual capture: no completed buffers")
     return out

@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
-# face-unlock installer. Run as your user (uses sudo internally).
+# face-unlock installer (dev-tree layout under /usr/local).
+# Run as your user (uses sudo internally).
 # Backs up every PAM file it touches. Keeps password fallback (sufficient).
+# Usage: ./install.sh [--profile NAME] [--no-pam]
+#   --profile NAME  write profiles/NAME.yaml to /etc/facelock/config.yaml
+#                   (backs up any existing config first)
+#   --no-pam        skip PAM wiring (do it later with facelock-pam-enable)
 set -euo pipefail
 cd "$(dirname "$0")"
+PROFILE=""
+WIRE_PAM=1
+for arg in "$@"; do
+  case "$arg" in
+    --profile=*) PROFILE="${arg#--profile=}" ;;
+    --no-pam) WIRE_PAM=0 ;;
+    *) echo "unknown arg: $arg"; exit 1 ;;
+  esac
+done
 
 echo '== 1/5 deps =='
 sudo pacman -S --needed --noconfirm \
@@ -19,9 +33,20 @@ sudo cp enroll.py verify.py setup_models.py pam_check.sh dual_test.py \
   ir_check.py /usr/local/lib/facelock/
 sudo sha256sum /usr/local/lib/facelock/verify.py \
   /usr/local/lib/facelock/facelock/dual_capture.py | head -4
-sudo cp facelock-run /usr/local/bin/facelock-run
-sudo chmod 755 /usr/local/bin/facelock-run
-[ -f /etc/facelock/config.yaml ] || sudo cp config.yaml /etc/facelock/config.yaml
+sudo cp facelock-run facelock-detect facelock-pam-enable /usr/local/bin/
+sudo chmod 755 /usr/local/bin/facelock-run /usr/local/bin/facelock-detect \
+  /usr/local/bin/facelock-pam-enable
+sudo mkdir -p /usr/local/share/facelock/profiles
+sudo cp profiles/*.yaml /usr/local/share/facelock/profiles/
+if [ -n "$PROFILE" ]; then
+  [ -f "profiles/$PROFILE.yaml" ] || { echo "no such profile: $PROFILE"; exit 1; }
+  [ -f /etc/facelock/config.yaml ] && \
+    sudo cp /etc/facelock/config.yaml "/etc/facelock/config.yaml.bak.$(date +%s)"
+  sudo cp "profiles/$PROFILE.yaml" /etc/facelock/config.yaml
+  echo "installed profile $PROFILE (edit pam.user inside for your login)"
+elif [ ! -f /etc/facelock/config.yaml ]; then
+  sudo cp config.yaml /etc/facelock/config.yaml
+fi
 sudo chmod 755 /usr/local/lib/facelock/*.py \
   /usr/local/lib/facelock/pam_check.sh
 # store/log must be group-accessible: sudo runs PAM auth helpers as the
@@ -48,19 +73,14 @@ for attr in brightness flash_strobe flash_brightness flash_timeout; do
 done
 
 echo '== 5/5 PAM (login sudo hyprlock), backups in /etc/facelock/pam-backup =='
-[ -f /usr/lib/security/pam_exec.so ] || {
-  echo 'missing pam_exec.so, aborting PAM wiring'; exit 1; }
-LINE='auth sufficient pam_exec.so /usr/local/lib/facelock/pam_check.sh'
-for svc in login sudo hyprlock; do
-  f="/etc/pam.d/$svc"
-  [ -f "$f" ] || { echo "skip $svc (no $f)"; continue; }
-  sudo cp -n "$f" "/etc/facelock/pam-backup/$svc" || true
-  if sudo grep -qF "$LINE" "$f"; then echo "$svc: already wired"; continue; fi
-  sudo awk -v line="$LINE" 'NR==1{print; print line; next}1' "$f" \
-    | sudo tee "$f.new" >/dev/null
-  sudo mv "$f.new" "$f"
-  echo "$svc: wired"
-done
+if [ "$WIRE_PAM" = 1 ]; then
+  [ -f /usr/lib/security/pam_exec.so ] || {
+    echo 'missing pam_exec.so, aborting PAM wiring'; exit 1; }
+  sudo FACELOCK_PAM_CHECK=/usr/local/lib/facelock/pam_check.sh \
+    /usr/local/bin/facelock-pam-enable login sudo hyprlock
+else
+  echo 'skipped (--no-pam). Wire later: sudo facelock-pam-enable login sudo'
+fi
 
 echo
 echo 'Next: sudo python /usr/local/lib/facelock/enroll.py --sensor both'

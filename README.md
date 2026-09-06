@@ -48,3 +48,29 @@ python /usr/local/lib/facelock/verify.py   # test as yourself first
 
 Then test login/sudo/hyprlock from a **second session** before logging out.
 If anything misbehaves: `./uninstall.sh` restores PAM backups.
+
+## Porting to another ARM laptop
+
+1. Run `facelock-detect` — it prints cameras, GStreamer elements, UVC
+   nodes, LED flash nodes, and the pycamera API style.
+2. Copy `profiles/_template.yaml` to `profiles/<machine>.yaml` and fill in
+   the suggested values. `profiles/generic-uvc.yaml` covers plain webcams
+   with no IR; `profiles/zenbook-a14.yaml` is the dual-sensor reference.
+3. Install with your profile (backs up any existing config):
+   `./install.sh --profile <machine>`
+4. Enroll + verify, tune `match.*_threshold` to your lighting.
+5. Send the profile upstream so the next machine works out of the box.
+
+Notes for porters:
+
+- UVC-only machines need just `cameras.rgb: uvc:/dev/videoN`
+  (`capture.mode: uvc`) plus `gst-plugins-good` for `v4l2src`.
+- Single-IR-sensor libcamera machines use `capture.mode: sequential`
+  (RGB via `libcamerasrc`, IR via `cam` raw) — no kernel work needed.
+- Concurrent dual (`dual-pycamera`) needs either luck with the stock
+  route allocator or a board-specific mapping fix like the X1P one.
+- `dual_capture.py` speaks both pycamera API styles (snake_case 0.7.1
+  and camelCase); anything else falls back to sequential automatically.
+- Packaged installs (`PKGBUILD`, Arch `any`) keep the same layout under
+  `/usr` instead of `/usr/local`; PAM is wired explicitly with
+  `facelock-pam-enable`, never automatically.

@@ -1,0 +1,16 @@
+post_install() {
+  echo "==> facelock installed."
+  echo "    1. Pick a profile: facelock-detect, then copy one from"
+  echo "       /usr/share/facelock/profiles/ to /etc/facelock/config.yaml"
+  echo "       and set pam.user to your login name."
+  echo "    2. Download models: sudo python /usr/lib/facelock/setup_models.py"
+  echo "       (edit models.dir in the config first if needed)"
+  echo "    3. Enroll: sudo facelock-run /usr/lib/facelock/enroll.py"
+  echo "    4. Wire PAM (backs up first): sudo facelock-pam-enable login sudo"
+}
+
+post_upgrade() {
+  echo "==> facelock upgraded. /etc/facelock/config.yaml was preserved;"
+  echo "    compare with /usr/share/doc/facelock/config.example.yaml for"
+  echo "    new options."
+}
