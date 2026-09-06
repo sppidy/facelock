@@ -119,6 +119,15 @@ def main():
     ap.add_argument("--quiet", action="store_true")
     a = ap.parse_args()
     cfg = load_cfg()
+    import os as _os
+    _sd = cfg["store"]["dir"]
+    try:
+        _files = sorted(_os.listdir(_sd))
+    except OSError as e:
+        _files = [f"LISTDIR-ERR {e}"]
+    print(f"store dir={_sd} want={a.user}.npz "
+          f"have={_os.path.exists(_os.path.join(_sd, a.user + '.npz'))} "
+          f"files={_files}", flush=True)
     refs = store.load(cfg["store"]["dir"], a.user)
     if not refs:
         print(f"no enrollment for {a.user}")
