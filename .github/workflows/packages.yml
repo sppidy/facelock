@@ -46,6 +46,8 @@ jobs:
               set -eo pipefail
               pacman-key --init
               pacman-key --populate archlinuxarm
+              # unprivileged CI containers cannot apply pacman's Landlock sandbox
+              grep -q '^DisableSandbox' /etc/pacman.conf || echo 'DisableSandbox' >> /etc/pacman.conf
               pacman -Sy --noconfirm --needed git python python-opencv python-numpy python-yaml gstreamer gst-plugins-base v4l-utils libcamera pam
               id builder >/dev/null 2>&1 || useradd -m builder
               chown -R builder:builder /pkg
