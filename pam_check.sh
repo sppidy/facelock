@@ -33,8 +33,11 @@ echo "CANDIDATE=${CANDIDATE:-empty} WANT=${WANT:-empty}" >> $DBG 2>&1 || true
 [ -n "$WANT" ] && [ "$CANDIDATE" = "$WANT" ] || { echo "USER-MISMATCH exit 1" >> $DBG; exit 1; }
 echo "EXEC verify" >> $DBG 2>&1 || true
 echo "which-python=$(command -v python) wrapper=$0 args=$*" >> $DBG 2>&1 || true
-/usr/local/bin/facelock-run /usr/local/lib/facelock/verify.py \
-  --quiet --user "$CANDIDATE" >>"$LOG" 2>&1
+OUT=$(/usr/local/bin/facelock-run /usr/local/lib/facelock/verify.py \
+  --quiet --user "$CANDIDATE" 2>&1)
 RC=$?
-echo "verify rc=$RC marker-after-call" >> $DBG 2>&1 || true
+echo "verify rc=$RC outlen=${#OUT} marker-after-call" >> $DBG 2>&1 || true
+echo "$OUT" >>"$LOG" 2>&1 && echo "log-write-ok" >> $DBG 2>&1 || \
+  echo "LOG-WRITE-FAILED" >> $DBG 2>&1
+echo "$OUT" >> $DBG 2>&1 || true
 exit $RC
