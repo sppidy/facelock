@@ -2,14 +2,36 @@ name: packages
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ["v*"]
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  classify:
+    name: Release or nightly?
+    runs-on: ubuntu-24.04
+    if: github.ref_type == 'branch' || github.event_name != 'push'
+    outputs:
+      pkg: ${{ steps.filter.outputs.pkg }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            pkg:
+              - 'PKGBUILD'
+              - '.SRCINFO'
+              - 'facelock.install'
+              - 'debian/**'
+
   arch:
     name: Arch (aarch64, makepkg)
     runs-on: ubuntu-24.04-arm
@@ -22,10 +44,10 @@ jobs:
             menci/archlinuxarm:base-devel \
             bash -c "
               set -e
-              pacman -Sy --noconfirm --needed git 2>&1 | tail -1
+              pacman -Sy --noconfirm --needed git python python-opencv python-numpy python-yaml gstreamer gst-plugins-base v4l-utils libcamera pam 2>&1 | tail -1
               id builder >/dev/null 2>&1 || useradd -m builder
               chown -R builder:builder /pkg
-              su builder -c 'cd /pkg && makepkg -s --noconfirm --clean'
+              su builder -c 'cd /pkg && makepkg --noconfirm --clean'
             "
       - name: Collect artifact
         run: ls -l ./*.pkg.tar.zst
@@ -43,7 +65,7 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq debhelper
+          sudo apt-get install -y -qq build-essential fakeroot debhelper
       - name: Build .deb
         run: dpkg-buildpackage -b -us -uc
       - name: Collect artifact
@@ -54,10 +76,52 @@ jobs:
           path: "../*.deb"
           if-no-files-found: error
 
-  release:
-    name: Attach to GitHub Release
+  nightly:
+    name: Nightly prerelease
+    needs: [classify, arch, debian]
+    if: >-
+      github.ref_type != 'tag' &&
+      (github.event_name != 'push' || needs.classify.outputs.pkg != 'true')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly packages
+          prerelease: true
+          files: dist/*
+
+  release-pkg:
+    name: Packaging-change release
+    needs: [classify, arch, debian]
+    if: >-
+      github.ref_type == 'branch' &&
+      github.event_name == 'push' &&
+      needs.classify.outputs.pkg == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Date tag
+        id: tag
+        run: echo "tag=pkg-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Packaging ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          files: dist/*
+
+  release-tag:
+    name: Tag release
     needs: [arch, debian]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
