@@ -23,19 +23,40 @@ def load_cfg():
     sys.exit("no config.yaml found")
 
 
+def flash_state(cand_paths):
+    vals = {}
+    for key, p in cand_paths.items():
+        try:
+            with open(p) as f:
+                vals[key] = f.read().strip()
+        except OSError:
+            vals[key] = "?"
+    return vals
+
+
 def attempt_dual(det, rec, cfg, refs):
     """Concurrent RGB+IR in one process (staged stack). Returns dict of
     (ok, sim, score) per source. Raises to trigger legacy fallback."""
     from facelock import dual_capture
     from facelock.ir_capture import fire_strobe
+    import os
     m = cfg["match"]
     d = cfg.get("dual", {})
-    fire_strobe(cfg["ir_led"].get("strobe_path"),
-                cfg["ir_led"]["path"], cfg["ir_led"]["brightness"])
+    led = cfg["ir_led"]
+    strobe = os.path.dirname(led.get("strobe_path", ""))
+    pre = flash_state({"fault": strobe + "/flash_fault",
+                       "strobe": strobe + "/flash_strobe"}) if strobe else {}
+    fire_strobe(led.get("strobe_path"), led["path"], led["brightness"])
     imgs = dual_capture.capture_dual(
         cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
         rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
         nbuf=d.get("buffers", 8))
+    import numpy as np
+    post = flash_state({"fault": strobe + "/flash_fault",
+                        "strobe": strobe + "/flash_strobe"}) if strobe else {}
+    ir_mean = round(float(np.asarray(imgs["ir"]).mean()), 1) \
+        if imgs.get("ir") is not None else -1
+    print(f"flash pre={pre} post={post} ir_mean={ir_mean}")
     res = {}
     for src, thresh in (("rgb", m["rgb_threshold"]),
                         ("ir", m["ir_threshold"])):
