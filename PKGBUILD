@@ -18,6 +18,7 @@ optdepends=('python-libcamera: concurrent dual-sensor capture'
             'hyprlock: face unlock on the Hyprland lock screen')
 makedepends=('git' 'tar')
 backup=('etc/facelock/config.yaml')
+options=('!debug') # Python and shell only; no separate debug package.
 if [[ -n ${FACELOCK_SOURCE_ARCHIVE:-} ]]; then
   : "${FACELOCK_SOURCE_SHA256:?local source requires SHA256}"
   source=("$FACELOCK_SOURCE_ARCHIVE")

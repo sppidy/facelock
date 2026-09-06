@@ -21,6 +21,7 @@ pkgbase = facelock
 	optdepends = gst-plugins-good: UVC webcams over GStreamer (v4l2src)
 	optdepends = hyprlock: face unlock on the Hyprland lock screen
 	backup = etc/facelock/config.yaml
+	options = !debug
 	source = git+https://github.com/sppidy/facelock.git#tag=v0.1.0-2
 	sha256sums = SKIP
 	install = facelock.install

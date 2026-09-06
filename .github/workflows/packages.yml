@@ -19,7 +19,7 @@ jobs:
       tag: ${{ steps.prepare.outputs.tag }}
       stable: ${{ steps.prepare.outputs.stable }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -34,7 +34,7 @@ jobs:
           docker image inspect debian:trixie --format '{{index .RepoDigests 0}}' > dist/builder-image.txt
           docker run --rm -v "$PWD:/checkout:ro" -v "$PWD/dist:/out" \
             debian:trixie bash /checkout/ci/build.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: packages-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/*
@@ -51,10 +51,10 @@ jobs:
       group: publish-${{ needs.build.outputs.tag }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: packages-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist
