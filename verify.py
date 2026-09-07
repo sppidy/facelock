@@ -8,7 +8,7 @@ import sys
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from facelock import capture, ir_capture, recognize, store
+from facelock import capture, ir_capture, recognize, store, telemetry
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,10 +57,11 @@ def attempt_dual(det, rec, cfg, refs):
             fired["readback"] = "?"
 
     try:
-        imgs = dual_capture.capture_dual(
+        imgs, stats = dual_capture.capture_dual_stats(
             cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
             rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
-            nbuf=d.get("buffers", 8), on_streaming=fire)
+            nbuf=d.get("buffers", 8), on_streaming=fire,
+            settle=d.get("settle"))
     finally:
         set_led(led.get("strobe_path", ""), 0)
         set_led(led["path"], 0)
@@ -71,21 +72,37 @@ def attempt_dual(det, rec, cfg, refs):
         if imgs.get("ir") is not None else -1
     print(f"flash pre={pre} post={post} fired_rb={fired.get('readback', '?')} "
           f"ir_mean={ir_mean}")
+    from facelock import quality
+    qcfg = cfg.get("quality", {})
     res = {}
+    qinfo = {}
+    expinfo = {k: {"frames": v.get("frames"), "settled": v.get("settled"),
+                   "exp": v.get("exp"), "gain": v.get("gain")}
+               for k, v in (stats or {}).items()}
     for src, thresh in (("rgb", m["rgb_threshold"]),
                         ("ir", m["ir_threshold"])):
         img, ref = imgs.get(src), refs.get(src)
         if img is None or ref is None:
             res[src] = (False, 0.0, 0.0)
+            qinfo[src] = {"gated": "no-image"}
             continue
-        v, s = recognize.embed(img, det, rec,
-                               cfg["match"]["detector_min_score"])
+        v, s, box = recognize.embed(img, det, rec,
+                                    cfg["match"]["detector_min_score"])
         if v is None:
             res[src] = (False, 0.0, s)
+            qinfo[src] = {"gated": "no-face", "score": round(s, 2)}
         else:
-            sim = recognize.similarity(v, ref)
-            res[src] = (sim >= thresh, sim, s)
-    return res
+            ok_q, reasons = quality.check(img, box, qcfg)
+            if not ok_q:
+                res[src] = (False, 0.0, s)
+                qinfo[src] = {"gated": reasons, "score": round(s, 2)}
+            else:
+                sim = recognize.similarity(v, ref)
+                res[src] = (sim >= thresh, sim, s)
+                qinfo[src] = {"score": round(s, 2),
+                              "blur": round(quality.blur_score(img), 1),
+                              "mean": round(quality.brightness(img), 1)}
+    return res, {"quality": qinfo, "exposure": expinfo}
 
 
 def attempt(det, rec, cfg, camera, ref, thresh, use_ir):
@@ -105,7 +122,7 @@ def attempt(det, rec, cfg, camera, ref, thresh, use_ir):
     except Exception as e:
         print(f"capture failed: {e}")
         return False, 0.0, 0.0
-    v, s = recognize.embed(img, det, rec, cfg["match"]["detector_min_score"])
+    v, s, _box = recognize.embed(img, det, rec, cfg["match"]["detector_min_score"])
     if v is None or ref is None:
         return False, 0.0, s
     sim = recognize.similarity(v, ref)
@@ -141,21 +158,33 @@ def main():
     fusion = cfg.get("fusion", {}).get("mode", "fallback")
     import time as _t
     dual = None
+    diag = {}
+    t_cap = 0.0
     if os.environ.get("FACELOCK_STAGED"):
         t0 = _t.time()
         try:
-            dual = attempt_dual(det, rec, cfg, refs)
-            print(f"dual capture took {_t.time() - t0:.1f}s")
+            dual, diag = attempt_dual(det, rec, cfg, refs)
+            t_cap = _t.time() - t0
+            print(f"dual capture took {t_cap:.1f}s")
         except Exception as e:
             print(f"dual path failed, legacy fallback: {e}")
     if dual is not None:
         # concurrent path always evaluates both sources; scores always
         # logged (pam.log is root-only) so misses are diagnosable
+        srcs = {}
         for src in ("rgb", "ir"):
             ok, sim, s = dual[src]
             print(f"{src}: face_score={s:.2f} similarity={sim:.2f} "
                   f"-> {'MATCH' if ok else 'no match'}")
-        return 0 if (dual["rgb"][0] or dual["ir"][0]) else 1
+            srcs[src] = {"match": bool(ok), "sim": round(sim, 2),
+                         "score": round(s, 2),
+                         **(diag.get("quality", {}).get(src, {}))}
+        ok = bool(dual["rgb"][0] or dual["ir"][0])
+        telemetry.emit({"event": "verify", "user": a.user, "path": "dual",
+                        "result": "match" if ok else "miss",
+                        "capture_s": round(t_cap, 2), "sources": srcs,
+                        "exposure": diag.get("exposure")})
+        return 0 if ok else 1
     rgb_ok, rgb_sim, rgb_s = attempt(
         det, rec, cfg, cfg["cameras"]["rgb"],
         refs.get("rgb"), m["rgb_threshold"], False)
@@ -170,6 +199,17 @@ def main():
             print(f"ir: face_score={ir_s:.2f} similarity={ir_sim:.2f} "
                   f"-> {'MATCH' if ir_ok else 'no match'}")
     ok = rgb_ok or ir_ok
+    telemetry.emit({"event": "verify", "user": a.user, "path": "legacy",
+                    "result": "match" if ok else "miss",
+                    "sources": {
+                        "rgb": {"match": bool(rgb_ok),
+                                "sim": round(rgb_sim, 2),
+                                "score": round(rgb_s, 2)},
+                        "ir": {"match": bool(ir_ok),
+                               "sim": round(ir_sim, 2) if
+                               refs.get("ir") is not None else None,
+                               "score": round(ir_s, 2) if
+                               refs.get("ir") is not None else None}}})
     if a.quiet:
         pass
     return 0 if ok else 1

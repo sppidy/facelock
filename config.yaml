@@ -30,6 +30,16 @@ dual:
   rgb_width: 640
   rgb_height: 480
   buffers: 16       # ~0.5s warmup so AEGC settles on both sensors
+  settle:           # AEGC-settle warmup: stop when exposure+gain stop moving
+    stable: 4       # consecutive frames within tolerance
+    exp_tol: 0.10   # relative exposure change per frame
+    gain_tol: 0.05  # absolute gain change per frame
+    min_frames: 4   # always stream at least these
+    max_frames: 60  # hard cap per source
+quality:            # frame gates applied before matching (M1)
+  min_blur: 25.0
+  brightness_range: [15.0, 235.0]
+  min_face_frac: 0.05
 store:
   dir: "/var/lib/facelock"   # <user>.npz, root-owned 0600
 pam:

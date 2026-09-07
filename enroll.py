@@ -32,7 +32,7 @@ def enroll_one(det, rec, cfg, camera, use_led, label):
         for i in range(3):
             img = capture.snapshot(camera, cap["width"], cap["height"],
                                    cap.get("warmup_sec", 1.5))
-            v, s = recognize.embed(img, det, rec,
+            v, s, _box = recognize.embed(img, det, rec,
                                    cfg["match"]["detector_min_score"])
             print(f"[{label}] sample {i + 1}: face_score={s:.2f} "
                   f"{'ok' if v is not None else 'NO FACE'}", flush=True)
@@ -60,7 +60,7 @@ def enroll_one_ir(det, rec, cfg):
         except Exception as e:
             print(f"[ir] sample {i + 1}: capture failed: {e}", flush=True)
             continue
-        v, s = recognize.embed(img, det, rec,
+        v, s, _box = recognize.embed(img, det, rec,
                                cfg["match"]["detector_min_score"])
         print(f"[ir] sample {i + 1}: face_score={s:.2f} "
               f"{'ok' if v is not None else 'NO FACE'}", flush=True)
@@ -97,9 +97,11 @@ def enroll_dual(det, rec, cfg):
             set_led(led.get("strobe_path", ""), 0)
             set_led(led["path"], 0)
         for src in ("rgb", "ir"):
-            v, s = recognize.embed(imgs[src], det, rec,
-                                   cfg["match"]["detector_min_score"]) \
-                if imgs.get(src) is not None else (None, 0.0)
+            if imgs.get(src) is not None:
+                v, s, _box = recognize.embed(
+                    imgs[src], det, rec, cfg["match"]["detector_min_score"])
+            else:
+                v, s, _box = None, 0.0, None
             print(f"[{src}] sample {i + 1}: face_score={s:.2f} "
                   f"{'ok' if v is not None else 'NO FACE'}", flush=True)
             if v is not None:

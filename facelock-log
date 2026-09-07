@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""facelock-log: readable tail of the attempts JSONL log."""
+import json
+import os
+import sys
+
+
+def main():
+    path = sys.argv[1] if len(sys.argv) > 1 else os.environ.get(
+        "FACELOCK_LOG", "/var/lib/facelock/attempts.jsonl")
+    try:
+        lines = open(path).read().splitlines()[-int(
+            os.environ.get("N", sys.argv[2] if len(sys.argv) > 2 else 20)):]
+    except OSError as e:
+        sys.exit(f"no log at {path}: {e}")
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        srcs = " ".join(
+            f"{k}={v.get('score', '?')}/{v.get('sim', '?')}"
+            f"{'✓' if v.get('match') else '✗'}"
+            for k, v in (r.get("sources") or {}).items())
+        print(f"{r.get('ts', '?')} {r.get('result', '?'):5} "
+              f"{r.get('capture_s', '?')}s {srcs} "
+              f"{r.get('note', '')}")
+
+
+if __name__ == "__main__":
+    main()
