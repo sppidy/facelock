@@ -4,7 +4,7 @@
 _giturl="https://github.com/sppidy/facelock.git"
 pkgname=facelock
 pkgver=0.1.0
-pkgrel=2
+pkgrel=3
 _gittag="v${pkgver}-${pkgrel}"
 pkgdesc="Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops"
 arch=('any')
