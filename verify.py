@@ -36,9 +36,9 @@ def flash_state(cand_paths):
 
 def attempt_dual(det, rec, cfg, refs):
     """Concurrent RGB+IR in one process (staged stack). Returns dict of
-    (ok, sim, score) per source. Raises to trigger legacy fallback."""
-    from facelock import dual_capture
-    from facelock.ir_capture import fire_strobe, set_led
+    (ok, sim, score) per source + diag. Raises to trigger legacy fallback."""
+    from facelock import dual_capture, liveness
+    from facelock.ir_capture import set_led
     import os
     m = cfg["match"]
     d = cfg.get("dual", {})
@@ -46,32 +46,62 @@ def attempt_dual(det, rec, cfg, refs):
     strobe = os.path.dirname(led.get("strobe_path", ""))
     pre = flash_state({"fault": strobe + "/flash_fault",
                        "strobe": strobe + "/flash_strobe"}) if strobe else {}
-    fired = {}
+    nbuf = d.get("buffers", 8)
 
-    def fire():
-        fire_strobe(led.get("strobe_path"), led["path"], led["brightness"])
+    # --- M2: per-attempt strobe challenge -----------------------------
+    nonce = liveness.make_nonce()
+    pattern = liveness.challenge_pattern(nonce, nbuf)
+    driver = liveness.StrobeDriver(led.get("strobe_path"),
+                                   led.get("path"), pattern)
+    ir_burst = {}   # frame_idx -> gray 2-D array
+    lit_flags = {}  # frame_idx -> bool (strobe commanded on)
+
+    # NOTE: dual_capture hands raw FrameBuffers to frame_cb; decode inline
+    # is heavy. Instead collect per-frame decode AFTER capture via the
+    # same mmaps the final decode uses. Simpler: re-capture is wasteful;
+    # so we decode each IR buffer once here (few hundred KB each).
+    def frame_cb_raw(name, idx, fb):
+        if name != "ir":
+            return
         try:
-            with open(led.get("strobe_path", "")) as f:
-                fired["readback"] = f.read().strip()
-        except OSError:
-            fired["readback"] = "?"
+            import numpy as np
+            from facelock.ir_capture import unpack_r10_bytes
+            planes = dual_capture._planes(fb)
+            blob = dual_capture._read_plane(planes[0])
+            h = int(360)  # hm1092 fixed geometry
+            stride = len(blob) // h
+            gray = unpack_r10_bytes(blob, 560, h, stride)
+            ir_burst[idx] = gray
+            lit_flags[idx] = driver.on_frame(idx)
+        except Exception:
+            pass
 
     try:
         imgs, stats = dual_capture.capture_dual_stats(
             cfg["cameras"]["rgb"], cfg["cameras"]["ir"],
             rgb_size=(d.get("rgb_width", 640), d.get("rgb_height", 480)),
-            nbuf=d.get("buffers", 8), on_streaming=fire,
-            settle=d.get("settle"))
+            nbuf=nbuf,
+            settle=d.get("settle"),
+            frame_cb=frame_cb_raw)
     finally:
-        set_led(led.get("strobe_path", ""), 0)
-        set_led(led["path"], 0)
+        driver.off()
     import numpy as np
     post = flash_state({"fault": strobe + "/flash_fault",
                         "strobe": strobe + "/flash_strobe"}) if strobe else {}
     ir_mean = round(float(np.asarray(imgs["ir"]).mean()), 1) \
         if imgs.get("ir") is not None else -1
-    print(f"flash pre={pre} post={post} fired_rb={fired.get('readback', '?')} "
-          f"ir_mean={ir_mean}")
+
+    # --- M2 verify: challenge + texture --------------------------------
+    burst = [ir_burst[i] for i in sorted(ir_burst)] if ir_burst else []
+    flags = [lit_flags[i] for i in sorted(ir_burst)] if ir_burst else []
+    chal_ok, chal_detail = (False, {"reason": "no-burst"})
+    if burst and flags and len(burst) == len(flags):
+        chal_ok, chal_detail = liveness.check_challenge(burst, flags)
+    tex_score, tex_detail = liveness.temporal_noise(burst if chal_ok else [])
+    print(f"challenge ok={chal_ok} {chal_detail}")
+    print(f"texture score={tex_score} {tex_detail}")
+    print(f"flash pre={pre} post={post} ir_mean={ir_mean}")
+
     from facelock import quality
     qcfg = cfg.get("quality", {})
     res = {}
@@ -102,7 +132,16 @@ def attempt_dual(det, rec, cfg, refs):
                 qinfo[src] = {"score": round(s, 2),
                               "blur": round(quality.blur_score(img), 1),
                               "mean": round(quality.brightness(img), 1)}
-    return res, {"quality": qinfo, "exposure": expinfo}
+    # M2: liveness must pass for IR to count at all
+    if not chal_ok:
+        res["ir"] = (False, res["ir"][1], res["ir"][2])
+        qinfo["ir"] = {**qinfo.get("ir", {}), "gated": "challenge-failed"}
+    if tex_score < 0.5:
+        res["ir"] = (False, res["ir"][1], res["ir"][2])
+        qinfo["ir"] = {**qinfo.get("ir", {}), "gated": "texture"}
+    liv = {"challenge": chal_ok, "challenge_detail": chal_detail,
+           "texture": tex_score, "texture_detail": tex_detail}
+    return res, {"quality": qinfo, "exposure": expinfo, "liveness": liv}
 
 
 def attempt(det, rec, cfg, camera, ref, thresh, use_ir):
@@ -179,11 +218,20 @@ def main():
             srcs[src] = {"match": bool(ok), "sim": round(sim, 2),
                          "score": round(s, 2),
                          **(diag.get("quality", {}).get(src, {}))}
-        ok = bool(dual["rgb"][0] or dual["ir"][0])
+        # M2: fusion replaces OR (both domains must agree when both are live)
+        from facelock import liveness as _liv
+        both_req = refs.get("rgb") is not None and refs.get("ir") is not None
+        ok, fus = _liv.fuse(dual.get("rgb"), dual.get("ir"),
+                            both_required=both_req)
+        print(f"fusion: {fus}")
         telemetry.emit({"event": "verify", "user": a.user, "path": "dual",
                         "result": "match" if ok else "miss",
                         "capture_s": round(t_cap, 2), "sources": srcs,
-                        "exposure": diag.get("exposure")})
+                        "exposure": diag.get("exposure"),
+                        "liveness": {k: v for k, v in
+                                     (diag.get("liveness") or {}).items()
+                                     if k == "challenge"},
+                        "fusion": fus})
         return 0 if ok else 1
     rgb_ok, rgb_sim, rgb_s = attempt(
         det, rec, cfg, cfg["cameras"]["rgb"],

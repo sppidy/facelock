@@ -11,8 +11,12 @@ import subprocess
 import tempfile
 import time
 
-import cv2
 import numpy as np
+
+try:
+    import cv2
+except ImportError:  # unit-test environments without opencv
+    cv2 = None
 
 W, H, STRIDE = 560, 360, 704
 

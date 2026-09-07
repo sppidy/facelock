@@ -95,12 +95,14 @@ def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
 
 def capture_dual_stats(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16,
                        timeout=25, on_streaming=None, settle=None,
-                       stats_cb=None):
+                       stats_cb=None, frame_cb=None):
     """capture_dual + per-source stats dict.
 
     stats[name] = {'frames': int, 'settled': bool,
                    'exp': last exposure, 'gain': last gain,
                    'exp_hist': [...], 'gain_hist': [...]}
+    frame_cb(name, frame_index, bgr_image): called per kept frame, before
+    the last-frame decode — lets the M2 liveness burst collect IR history.
     """
     import libcamera
     from libcamera import CameraManager, FrameBufferAllocator, StreamRole
@@ -244,6 +246,11 @@ def capture_dual_stats(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16,
                         s["settled"] = True
                 counts[name] = counts.get(name, 0) + 1
                 got[name] = fb  # keep last completed buffer per camera
+                if frame_cb is not None:
+                    try:
+                        frame_cb(name, counts[name] - 1, fb)
+                    except Exception:
+                        pass
         # decode last completed buffer per camera
         if "rgb" in got:
             w, h = rgb_wh
