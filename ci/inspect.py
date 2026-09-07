@@ -16,7 +16,7 @@ def inspect_payload(archive, deb=False):
         assert member.isdir() or member.isfile(), name
         if member.isdir():
             if name == 'var/lib/facelock':
-                assert member.mode == 0o750
+                assert member.mode == 0o770
             continue
         data = archive.extractfile(member).read()
         files[name] = data
