@@ -52,7 +52,7 @@ sudo chmod 755 /usr/local/lib/facelock/*.py \
 # store/log must be group-accessible: sudo runs PAM auth helpers as the
 # invoking user (uid 1000, zero caps), not as root
 sudo chgrp video /var/lib/facelock
-sudo chmod 750 /var/lib/facelock
+sudo chmod 770 /var/lib/facelock
 sudo touch /var/lib/facelock/pam.log /var/lib/facelock/env.log
 sudo chgrp video /var/lib/facelock/pam.log /var/lib/facelock/env.log
 sudo chmod 660 /var/lib/facelock/pam.log /var/lib/facelock/env.log

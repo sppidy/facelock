@@ -7,7 +7,7 @@ override_dh_auto_build:
 
 override_dh_fixperms:
 	dh_fixperms
-	chmod 750 debian/facelock/var/lib/facelock
+	chmod 770 debian/facelock/var/lib/facelock
 
 override_dh_auto_install:
 	install -Dm755 facelock-run debian/facelock/usr/bin/facelock-run
@@ -23,4 +23,4 @@ override_dh_auto_install:
 	install -Dm644 README.md debian/facelock/usr/share/doc/facelock/README.md
 	install -Dm644 99-facelock-ir-led.rules debian/facelock/usr/lib/udev/rules.d/99-facelock-ir-led.rules
 	install -Dm644 config.yaml debian/facelock/etc/facelock/config.yaml
-	install -dm750 debian/facelock/var/lib/facelock
+	install -dm770 debian/facelock/var/lib/facelock
