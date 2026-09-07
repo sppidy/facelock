@@ -45,7 +45,8 @@ def inspect_payload(archive, deb=False):
                      'usr/lib/facelock/verify.py', 'usr/lib/facelock/facelock/__init__.py',
                      'etc/facelock/config.yaml']:
         assert required in files, required
-    assert b'exec /usr/bin/python3 ' in files['usr/bin/facelock-run']
+    assert b'/usr/bin/python3' in files['usr/bin/facelock-run']
+    assert b'runpy' in files['usr/bin/facelock-run']
     assert b'$LIBDIR/../../bin/facelock-run' in files['usr/lib/facelock/pam_check.sh']
     return files
 

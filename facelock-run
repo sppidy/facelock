@@ -15,4 +15,13 @@ if [ -n "$STAGED" ] && [ -f "$STAGED/build/src/libcamera/libcamera.so.0.7.1" ]; 
     FACELOCK_STAGED="$STAGED"
     export FACELOCK_STAGED
 fi
-exec /usr/bin/python3 "$@"
+exec /usr/bin/python3 -c "
+import sys, os
+staged = os.environ.get('FACELOCK_STAGED', '')
+if staged:
+    pp = staged + '/build/src/py'
+    sys.path[:] = [p for p in sys.path if 'site-packages/libcamera' not in p]
+    sys.path.insert(0, pp)
+import runpy
+runpy.run_path(sys.argv.pop(1), run_name='__main__')
+" "$@"
