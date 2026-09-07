@@ -59,7 +59,7 @@ def main():
     assert len(debs) == len(arches) == 1
     dbs = list(dist.glob('facelock.db.tar.zst'))
     assert len(dbs) == 1, 'repo database missing'
-    db = tarfile.open(dbs[0])
+    db = tarfile.open(dbs[0].resolve())
     names = {n.removeprefix('./').rstrip('/') for n in db.getnames()}
     entry = next((n for n in names if n.endswith('/desc')), None)
     assert entry is not None, 'no desc entry in repo db'
