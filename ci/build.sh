@@ -14,6 +14,12 @@ chown builder:builder /build/*
 runuser -u builder -- bash /build/build-user.sh
 cp /build/arch/*.pkg.tar.zst /build/*.deb /out/
 python3 /checkout/ci/inspect.py /out
+repo_work=/repo
+rm -rf "$repo_work" && install -d -o builder -g builder "$repo_work"
+cp /out/*.pkg.tar.zst "$repo_work/"
+chown builder:builder "$repo_work"/*
+runuser -u builder -- bash -c 'cd /repo && repo-add facelock.db.tar.zst *.pkg.tar.zst'
+cp "$repo_work"/facelock.db* "$repo_work"/facelock.files* /out/ 2>/dev/null || true
 dpkg-query -W > /out/build-packages.txt
 cd /out
 sha256sum -- * > SHA256SUMS

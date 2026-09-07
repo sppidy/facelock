@@ -57,6 +57,15 @@ def main():
     debs = list(dist.glob('*.deb'))
     arches = list(dist.glob('*.pkg.tar.zst'))
     assert len(debs) == len(arches) == 1
+    dbs = list(dist.glob('facelock.db.tar.zst'))
+    assert len(dbs) == 1, 'repo database missing'
+    db = tarfile.open(dbs[0])
+    names = {n.removeprefix('./').rstrip('/') for n in db.getnames()}
+    entry = next((n for n in names if n.endswith('/desc')), None)
+    assert entry is not None, 'no desc entry in repo db'
+    desc = db.extractfile(db.getmember('./' + entry if './' + entry in db.getnames() else entry)).read().decode()
+    assert f'facelock-{version}-any.pkg.tar.zst' in desc, desc[:400]
+    assert '%FILENAME%' in desc and '%VERSION%' in desc
     metadata = subprocess.check_output(['dpkg-deb', '-f', str(debs[0]),
                                        'Package', 'Version', 'Architecture'], text=True)
     assert metadata == f'Package: facelock\nVersion: {version}\nArchitecture: arm64\n', metadata

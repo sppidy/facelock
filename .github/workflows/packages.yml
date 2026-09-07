@@ -44,12 +44,17 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
+      pages: write
+      id-token: write
     concurrency:
       group: publish-${{ needs.build.outputs.tag }}
       cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -65,3 +70,11 @@ jobs:
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
           RELEASE_STABLE: ${{ needs.build.outputs.stable }}
         run: python3 ci/publish.py
+      - name: Assemble pacman repo site
+        run: python3 ci/repo_site.py
+      - uses: actions/configure-pages@983d7736d9b0ae728b81db73337d0a9b5303073 # v5
+      - uses: actions/upload-pages-artifact@7b1f9821fb78d1868b0b890bcabe0d0d17f1c # v4
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@d76988cf6382c1283a30a2b539e0984797f1588 # v4
