@@ -65,7 +65,14 @@ def main():
         dbpath = dbpath.resolve()
         if not dbpath.is_file():
             dbpath = dist / 'facelock.db'
-    db = tarfile.open(dbpath)
+    # Debian's pacman 7.0 repo-add may compress with zstd, which stdlib
+    # tarfile cannot read. Verify with zstd if tarfile refuses.
+    try:
+        db = tarfile.open(dbpath)
+    except tarfile.ReadError:
+        raw = subprocess.run(['zstd', '-dc', str(dbpath)],
+                             check=True, capture_output=True).stdout
+        db = tarfile.open(fileobj=io.BytesIO(raw), mode='r')
     names = {n.removeprefix('./').rstrip('/') for n in db.getnames()}
     entry = next((n for n in names if n.endswith('/desc')), None)
     assert entry is not None, 'no desc entry in repo db'
