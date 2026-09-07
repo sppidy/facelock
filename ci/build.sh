@@ -18,7 +18,7 @@ repo_work=/repo
 rm -rf "$repo_work" && install -d -o builder -g builder "$repo_work"
 cp /out/*.pkg.tar.zst "$repo_work/"
 chown builder:builder "$repo_work"/*
-runuser -u builder -- bash -c 'cd /repo && repo-add facelock.db.tar.zst *.pkg.tar.zst'
+runuser -u builder -- bash -c 'cd /repo && repo-add facelock.db.tar.zst *.pkg.tar.zst && rm -f facelock.db facelock.files && cp facelock.db.tar.zst facelock.db && cp facelock.files.tar.zst facelock.files'
 set +x
 cp "$repo_work"/facelock.db* "$repo_work"/facelock.files* /out/
 ls /out/facelock.db* /out/facelock.files*
