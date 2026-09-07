@@ -4,6 +4,35 @@ Howdy-style login, rebuilt for machines where the camera is **not** a UVC
 webcam: Qualcomm CAMSS / libcamera `simple`-pipeline sensors (here:
 `ov02c10` RGB + `hm1092` IR with `ir:flash` LED on a Snapdragon X laptop).
 
+## Requirements (read before installing)
+
+**This is not a drop-in replacement for stock libcamera.** Concurrent dual
+capture needs two things that upstream libcamera does not provide on
+Qualcomm CAMSS:
+
+1. **A patched libcamera** with the disjoint-routes allocator
+   (`prefer_disjoint_routes`), so both sensors get separate CSID/VFE paths
+   instead of fighting over `msm_csid0`. The patch lives in the
+   `a14-scratch` research tree and is applied to a staged build (see
+   `research/x1p-libcamera-disjoint-routes.patch` and
+   `zenbook-staging-20260906.md` for the exact tree/config).
+2. **A patched kernel** with the correct full/lite CSID and VFE mapping for
+   X1P (`research/x1p-camss-normal-world-mapping.patch`). Stock kernels
+   route both sensors onto `msm_csid0` and the second `start()` fails with
+   `-EBUSY`.
+
+On the Zenbook A14 the patched stack lives at
+`~/scratch/x1p-concurrency-20260906/` (kernel in
+`/lib/modules/*/updates/qcom-camss.ko`, libcamera under
+`build/src/libcamera`); `facelock-run` wires that staged tree into
+`LD_LIBRARY_PATH`/`PYTHONPATH`/`XDG_CONFIG_HOME` and falls back to the
+legacy sequential paths automatically when it's absent.
+
+**Without those two patches you get RGB-only auth.** IR falls back to the
+sequential `cam` raw path (slower, single-sensor, still works), but the
+concurrent RGB+IR path that makes v1 feel like Windows Hello is not
+available on stock libcamera.
+
 ## How it differs from Howdy
 
 | | Howdy | face-unlock |
