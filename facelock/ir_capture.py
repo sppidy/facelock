@@ -11,7 +11,10 @@ import subprocess
 import tempfile
 import time
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # stdlib-only unit tests
+    np = None
 
 try:
     import cv2

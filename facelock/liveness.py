@@ -14,7 +14,10 @@ import hashlib
 import os
 import time
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # stdlib-only unit tests
+    np = None
 
 from .ir_capture import set_led
 
@@ -77,6 +80,15 @@ class StrobeDriver:
             set_led(self.bp, 0)
 
 
+def _fmean(f):
+    if hasattr(f, "mean"):
+        try:
+            return float(f.mean())
+        except Exception:
+            pass
+    return sum(_frame_pixels(f)) / max(len(_frame_pixels(f)), 1)
+
+
 def check_challenge(gray_frames, pattern):
     """Verify lit/dark correlation in the captured IR burst.
 
@@ -87,7 +99,7 @@ def check_challenge(gray_frames, pattern):
     if len(gray_frames) != len(pattern) or not gray_frames:
         return False, {"reason": "length-mismatch",
                        "frames": len(gray_frames), "pattern": len(pattern)}
-    means = [float(f.mean()) for f in gray_frames]
+    means = [_fmean(f) for f in gray_frames]
     lit = [m for m, p in zip(means, pattern) if p]
     dark = [m for m, p in zip(means, pattern) if not p]
     detail = {"means": [round(m, 1) for m in means],
@@ -102,6 +114,18 @@ def check_challenge(gray_frames, pattern):
     return True, detail
 
 
+def _frame_pixels(f):
+    """Return pixel values as a flat list (numpy or list-backed frames)."""
+    if hasattr(f, "ravel"):
+        try:
+            return [float(v) for v in f.ravel()]
+        except Exception:
+            pass
+    if hasattr(f, "tolist"):
+        return [float(v) for v in np.asarray(f).ravel().tolist()]
+    return [float(v) for v in f]  # Frame(list) or any flat iterable
+
+
 def temporal_noise(frames_gray):
     """Per-pixel temporal std across the burst, median-normalised.
 
@@ -109,27 +133,43 @@ def temporal_noise(frames_gray):
     strobe. Prints: near-zero temporal delta. Screens: LCD refresh +
     codec quantisation artifacts, typically blocky and spatially uniform.
     Returns (score, detail); score 0..1-ish, higher = more sensor-like.
+    Works with numpy arrays or any indexable 2-D frames.
     """
     if len(frames_gray) < 3:
         return 0.0, {"reason": "too-few-frames"}
-    stack = np.stack(frames_gray).astype(np.float32)
-    tstd = stack.std(axis=0)
-    med = float(np.median(tstd))
-    bright = [f for f in frames_gray
-              if float(np.mean(f)) > 20.0]  # only lit frames count
+    pix = [_frame_pixels(f) for f in frames_gray]
+    n = min(len(p) for p in pix)
+    if n == 0:
+        return 0.0, {"reason": "empty-frames"}
+    tstd = []
+    for i in range(n):
+        vals = [p[i] for p in pix]
+        m = sum(vals) / len(vals)
+        var = sum((v - m) ** 2 for v in vals) / len(vals)
+        tstd.append(var ** 0.5)
+    tstd.sort()
+    med = tstd[len(tstd) // 2]
+    bright = [f for f in frames_gray if _fmean(f) > 20.0]  # only lit count
     if len(bright) < 2:
         return 0.0, {"reason": "no-lit-pair"}
-    b = np.stack(bright).astype(np.float32)
-    bstd = b.std(axis=0)
-    # healthy lit-frame temporal noise on this sensor is ~2-6 gray levels
+    bpix = [_frame_pixels(f) for f in bright]
+    bn = min(len(p) for p in bpix)
+    bstd = []
+    for i in range(bn):
+        vals = [p[i] for p in bpix]
+        m = sum(vals) / len(vals)
+        var = sum((v - m) ** 2 for v in vals) / len(vals)
+        bstd.append(var ** 0.5)
+    bstd.sort()
+    bmed = bstd[len(bstd) // 2]
     score = 0.0
-    bmed = float(np.median(bstd))
     if 0.8 <= bmed <= 30.0:
         score = 1.0
     elif 30.0 < bmed <= 60.0:
         score = 0.5  # noisy screen? partial credit, flag it
     detail = {"tstd_med": round(med, 2), "bstd_med": round(bmed, 2)}
     return score, detail
+
 
 
 def fuse(rgb_res, ir_res, weights=None, both_required=True):
