@@ -3,7 +3,9 @@
 set -euo pipefail
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-base=https://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+# The os.archlinuxarm.org alias presents a mismatched TLS certificate.
+# Use an official mirror with valid HTTPS for both the rootfs and signature.
+base=https://ca.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
 fingerprint=68B3537F39A313B3E574D06777193F152BDBE6A6
 curl --fail --location --retry 3 "$base" -o "$work/rootfs.tar.gz"
 curl --fail --location --retry 3 "$base.sig" -o "$work/rootfs.tar.gz.sig"
