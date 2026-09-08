@@ -1,19 +1,54 @@
 #!/bin/sh
-# facelock-pam-enable: wire face auth into PAM services (backs up first).
-# Usage: sudo facelock-pam-enable login sudo [hyprlock ...]
-# Entries are 'sufficient': password fallback always still works.
-set -eu
-PCHECK="${FACELOCK_PAM_CHECK:-/usr/lib/facelock/pam_check.sh}"
-LINE="auth sufficient pam_exec.so $PCHECK"
-[ $# -ge 1 ] || { echo "usage: $0 <service> [service...]"; exit 1; }
-mkdir -p /etc/facelock/pam-backup
-for svc in "$@"; do
-  f="/etc/pam.d/$svc"
-  [ -f "$f" ] || { echo "skip $svc (no $f)"; continue; }
-  cp -n "$f" "/etc/facelock/pam-backup/$svc" || true
-  if grep -qF "$LINE" "$f"; then echo "$svc: already wired"; continue; fi
-  awk -v line="$LINE" 'NR==1{print; print line; next}1' "$f" > "$f.new"
-  mv "$f.new" "$f"
-  echo "$svc: wired (backup in /etc/facelock/pam-backup/$svc)"
-done
-echo "Test from a SECOND session before logging out."
+# Explicit PAM activation; preserve the password stack and make a backup.
+exec /usr/bin/python3 -I - "$@" <<'PYTHON'
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import sys
+import tempfile
+
+if os.geteuid() != 0 or len(sys.argv) < 2:
+    sys.exit("usage: sudo facelock-pam-enable <service> [service ...]")
+check = os.environ.get("FACELOCK_PAM_CHECK", "/usr/lib/facelock/pam_check.sh")
+if check not in ("/usr/lib/facelock/pam_check.sh", "/usr/local/lib/facelock/pam_check.sh"):
+    sys.exit("choose an installed facelock PAM helper")
+for item in (Path(check), *Path(check).parents):
+    info = item.lstat()
+    if info.st_uid != 0 or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+        sys.exit(f"untrusted PAM helper path: {item}")
+backup = Path("/etc/facelock/pam-backup")
+backup.mkdir(mode=0o700, parents=True, exist_ok=True)
+line = f"auth sufficient pam_exec.so seteuid quiet {check}"
+for service in sys.argv[1:]:
+    if not re.fullmatch(r"[a-zA-Z0-9_.-]+", service) or service in (".", ".."):
+        sys.exit("invalid PAM service name")
+    path = Path("/etc/pam.d") / service
+    if not path.is_file() or path.is_symlink():
+        sys.exit(f"missing regular PAM service file: {path}")
+    original = path.read_text()
+    saved = backup / service
+    if not saved.exists():
+        shutil.copy2(path, saved)
+    lines = [s for s in original.splitlines() if not (
+        "pam_exec.so" in s and any(p in s.split() for p in
+            ("/usr/lib/facelock/pam_check.sh", "/usr/local/lib/facelock/pam_check.sh")))]
+    index = 1 if lines and lines[0].startswith("#%PAM") else 0
+    lines.insert(index, line)
+    updated = "\n".join(lines) + "\n"
+    if updated != original:
+        fd, temp = tempfile.mkstemp(prefix=".facelock-", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(updated)
+                f.flush()
+                os.fsync(f.fileno())
+                os.fchmod(f.fileno(), stat.S_IMODE(path.stat().st_mode))
+            os.replace(temp, path)
+        finally:
+            if os.path.exists(temp):
+                os.unlink(temp)
+    print(f"{service}: configured; backup {saved}")
+print("Test from a second session; retain password access.")
+PYTHON

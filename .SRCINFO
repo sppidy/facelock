@@ -1,7 +1,7 @@
 pkgbase = facelock
 	pkgdesc = Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops
-	pkgver = 0.1.0
-	pkgrel = 2
+	pkgver = 0.2.0
+	pkgrel = 1
 	url = https://github.com/sppidy/facelock
 	arch = any
 	license = MIT
@@ -22,7 +22,7 @@ pkgbase = facelock
 	optdepends = hyprlock: face unlock on the Hyprland lock screen
 	backup = etc/facelock/config.yaml
 	options = !debug
-	source = git+https://github.com/sppidy/facelock.git#tag=v0.1.0-2
+	source = git+https://github.com/sppidy/facelock.git#tag=v0.2.0-1
 	sha256sums = SKIP
 	install = facelock.install
 

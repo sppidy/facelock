@@ -1,6 +1,6 @@
-# Explicit dual-camera policy. Select zenbook-a14-ir.yaml for IR-only use.
+# ASUS Zenbook A14: explicit IR-only policy for dark-room use.
 auth:
-  required_sensors: [rgb, ir]
+  required_sensors: [ir]
 cameras:
   rgb: /base/soc@0/cci@ac16000/i2c-bus@1/camera@36
   ir: /base/soc@0/cci@ac15000/i2c-bus@0/camera@24
@@ -9,7 +9,6 @@ capture:
   warmup_sec: 1.0
   timeout_sec: 15
 dual:
-  # CPU SoftISP crops to this size. Keep the full view, resize in acquisition.
   rgb_width: 1920
   rgb_height: 1080
   buffers: 4

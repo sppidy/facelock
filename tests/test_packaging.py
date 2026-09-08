@@ -46,7 +46,7 @@ class PackagingTests(unittest.TestCase):
         for path in list(ROOT.glob('*.sh')) + list((ROOT / 'ci').glob('*.sh')) + [ROOT / 'PKGBUILD', ROOT / 'facelock.install', ROOT / 'facelock-run', ROOT / 'facelock-pam-enable', ROOT / 'debian/postinst']:
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
-        self.assertEqual(tag, 'v0.1.0-3')
+        self.assertEqual(tag, 'v0.2.0-1')
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
@@ -54,48 +54,3 @@ class PackagingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-
-class Frame(list):
-    """Minimal ndarray-like: flat list of independent-noise pixels."""
-    _seed = [42]
-
-    def __init__(self, w, h, val, jitter=0):
-        import random
-        # fresh randomness per frame (temporal noise must vary per frame)
-        rng = random.Random(Frame._seed[0])
-        Frame._seed[0] += 1
-        vals = [min(255, max(0, val + rng.randint(-jitter, jitter)))
-                for _ in range(w * h)]
-        super().__init__(vals)
-        self.shape = (w, h)
-
-    def mean(self):
-        return sum(self) / len(self)
-
-
-class LivenessTests(unittest.TestCase):
-    def test_liveness(self):
-        from facelock import liveness
-        p1 = liveness.challenge_pattern("aa" * 8, 8)
-        p2 = liveness.challenge_pattern("aa" * 8, 8)
-        self.assertEqual(p1, p2)
-        self.assertGreaterEqual(sum(p1), 2)
-        lit = [Frame(8, 8, 200) for x in p1 if x]
-        dark = [Frame(8, 8, 10) for x in p1 if not x]
-        frames = [(lit.pop(0) if w else dark.pop(0)) for w in p1]
-        ok, _ = liveness.check_challenge(frames, p1)
-        self.assertTrue(ok)
-        flat = [Frame(8, 8, 80) for _ in p1]
-        ok2, _ = liveness.check_challenge(flat, p1)
-        self.assertFalse(ok2)
-        acc, _ = liveness.fuse((True, 0.55, 0.9), (False, 0.10, 0.8))
-        self.assertFalse(acc)
-        acc2, _ = liveness.fuse((True, 0.75, 0.9), (True, 0.80, 0.85))
-        self.assertTrue(acc2)
-        noisy = [Frame(8, 8, 120, jitter=4) for _ in range(4)]
-        s, _ = liveness.temporal_noise(noisy)
-        self.assertEqual(s, 1.0)
-        flatlit = [Frame(8, 8, 120, jitter=0) for _ in range(4)]
-        s2, _ = liveness.temporal_noise(flatlit)
-        self.assertEqual(s2, 0.0)

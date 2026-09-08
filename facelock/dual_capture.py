@@ -1,14 +1,10 @@
-"""Single-process concurrent RGB+IR capture (staged pycamera, 0.7.1 API).
+"""One CameraManager, reusable requests and copied, timestamped frames.
 
-Runs both sensors in ONE CameraManager so the disjoint-routes allocator
-can place them on separate CSID/VFE paths. Must execute under the staged
-stack (see facelock-run wrapper). Raises on catastrophic failure so callers
-can fall back to the legacy sequential paths.
+An unavailable route, cancelled request or decode error aborts capture.
 """
+from dataclasses import dataclass
 import mmap
-import os
 import select
-import sys
 import time
 
 import cv2
@@ -16,266 +12,232 @@ import numpy as np
 
 
 def _m(obj, *names):
-    """First matching attribute (snake_case 0.7.1 vs camelCase bindings)."""
-    for n in names:
-        if hasattr(obj, n):
-            return getattr(obj, n)
-    raise AttributeError(f"none of {names} on {type(obj).__name__}")
+    for name in names:
+        if hasattr(obj, name):
+            return getattr(obj, name)
+    raise AttributeError(f"missing {names} on {type(obj).__name__}")
+
+
+def _value(obj, *names):
+    value = _m(obj, *names)
+    return value() if callable(value) else value
 
 
 def _planes(fb):
-    p = getattr(fb, "planes", None)
-    return p() if callable(p) else p
+    return _value(fb, "planes")
 
 
 def _read_plane(plane):
-    m = mmap.mmap(plane.fd, plane.length,
-                  access=mmap.ACCESS_READ, offset=plane.offset)
-    try:
-        return bytes(m)
-    finally:
-        m.close()
+    offset = int(plane.offset)
+    base = offset - offset % mmap.PAGESIZE
+    delta = offset - base
+    with mmap.mmap(plane.fd, int(plane.length) + delta,
+                   access=mmap.ACCESS_READ, offset=base) as mapped:
+        return mapped[delta:delta + int(plane.length)]
 
 
-def _meta_exp_gain(req):
-    """Extract (exposure_us, analogue_gain) from request metadata.
-
-    pycamera exposes metadata as a dict keyed by ControlId with .name.
-    Returns (None, None) when a key is missing — never raises.
-    """
-    exp = gain = None
-    try:
-        md = _m(req, "metadata")
-        items = md.items() if hasattr(md, "items") else []
-        for key, val in items:
-            nm = getattr(key, "name", "") or ""
-            if nm == "ExposureTime" and exp is None:
-                try:
-                    exp = int(val)
-                except (TypeError, ValueError):
-                    pass
-            elif nm == "AnalogueGain" and gain is None:
-                try:
-                    gain = float(val)
-                except (TypeError, ValueError):
-                    pass
-    except Exception:
-        pass
-    return exp, gain
+def decode_rgb(blob, w, h, stride, pixel_format):
+    """FOURCC word order with little-endian byte storage, converted to BGR."""
+    channels = {
+        "ABGR8888": (4, (2, 1, 0)), "XBGR8888": (4, (2, 1, 0)),
+        "ARGB8888": (4, (0, 1, 2)), "XRGB8888": (4, (0, 1, 2)),
+        "RGB888": (3, (0, 1, 2)), "BGR888": (3, (2, 1, 0)),
+    }
+    if pixel_format not in channels:
+        raise ValueError(f"unsupported RGB format: {pixel_format}")
+    bpp, order = channels[pixel_format]
+    if stride < w * bpp or len(blob) < h * stride:
+        raise ValueError("short RGB plane")
+    rows = np.frombuffer(blob, np.uint8, count=h * stride).reshape(h, stride)
+    pixels = rows[:, :w * bpp].reshape(h, w, bpp)
+    return np.ascontiguousarray(pixels[:, :, order])
 
 
-def _decode_abgr(blob, w, h, stride):
-    # Despite the ABGR8888 label, SoftISP lays out bytes B,G,R,A in memory
-    # (verified: 4th byte saturates = alpha). BGR is the first 3 bytes.
-    a = np.frombuffer(blob, dtype=np.uint8).reshape(h, stride)
-    px = a[:, :w * 4].reshape(h, w, 4)
-    return px[:, :, 0:3].copy()
+@dataclass
+class Frame:
+    source: str
+    image: np.ndarray
+    timestamp_ns: int
+    sequence: int
+    exposure: float | None
+    gain: float | None
+    colour_gains: tuple | None = None
 
 
-def capture_dual(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16, timeout=25,
-                 on_streaming=None, settle=None, stats_cb=None):
-    """Returns {'rgb': bgr|None, 'ir': bgr|None}. Never returns Nones pair
-    without raising.
+class CameraSession:
+    def __init__(self, cameras, rgb_size=(640, 480), buffers=4):
+        if not 2 <= buffers <= 16:
+            raise ValueError("camera buffers must be in 2..16")
+        self.cameras, self.rgb_size, self.buffers = cameras, rgb_size, buffers
+        self.jobs, self.requests, self.started = {}, {}, []
+        self.cm = None
 
-    settle: dict|None. When given, frames stream until per-source
-      exposure/gain stop moving (AEGC settled) instead of a fixed count:
-      {'stable': 4,          # consecutive frames within tolerance
-       'exp_tol': 0.10,      # relative exposure change
-       'gain_tol': 0.05,     # absolute gain change
-       'min_frames': 4,      # always take at least these
-       'max_frames': 60}     # hard cap per source
-    stats_cb: optional callable(name, index, exp, gain) per completed frame.
-    Returns after settle or timeout; settle state is reported via the
-    'stats' key in the returned... (see capture_dual_stats).
-    """
-    return capture_dual_stats(
-        rgb_id, ir_id, rgb_size, nbuf, timeout, on_streaming, settle,
-        stats_cb)[0]
-
-
-def capture_dual_stats(rgb_id, ir_id, rgb_size=(640, 480), nbuf=16,
-                       timeout=25, on_streaming=None, settle=None,
-                       stats_cb=None, frame_cb=None):
-    """capture_dual + per-source stats dict.
-
-    stats[name] = {'frames': int, 'settled': bool,
-                   'exp': last exposure, 'gain': last gain,
-                   'exp_hist': [...], 'gain_hist': [...]}
-    frame_cb(name, frame_index, bgr_image): called per kept frame, before
-    the last-frame decode — lets the M2 liveness burst collect IR history.
-    """
-    import libcamera
-    from libcamera import CameraManager, FrameBufferAllocator, StreamRole
-
-    settle = settle or {}
-    want_stable = int(settle.get("stable", 0) or 0)
-    exp_tol = float(settle.get("exp_tol", 0.10))
-    gain_tol = float(settle.get("gain_tol", 0.05))
-    min_frames = int(settle.get("min_frames", 0) or 0)
-    max_frames = int(settle.get("max_frames", 60))
-    use_settle = want_stable > 0
-
-    cm = CameraManager.singleton()
-    cams = {}
-    _cams = getattr(cm, "cameras", None)
-    _cam_list = _cams() if callable(_cams) else _cams
-
-    def open_one(match, role, size=None, want_bufs=8):
-        cam = next(c for c in _cam_list if match in c.id)
-        _m(cam, "acquire")()
+    def __enter__(self):
+        import libcamera
+        self.libcamera = libcamera
+        self.cm = libcamera.CameraManager.singleton()
+        available = list(_value(self.cm, "cameras"))
         try:
-            cfg = _m(cam, "generate_configuration",
-                      "generateConfiguration")([role])
-            sc = cfg.at(0)
-            if size is not None:
-                try:
-                    sc.size = libcamera.Size(size[0], size[1])
-                except Exception:
-                    pass
-            try:
-                sc.buffer_count = want_bufs
-            except Exception:
-                try:
-                    sc.bufferCount = want_bufs
-                except Exception:
-                    pass
-            ret = _m(cam, "configure")(cfg)
-            if ret is not None and ret < 0:
-                raise RuntimeError(f"{match}: configure failed")
-            sc = cfg.at(0)  # re-read (driver may adjust)
-            alloc = FrameBufferAllocator(cam)
-            n = _m(alloc, "allocate")(sc.stream)
-            if n is not None and n <= 0:
-                raise RuntimeError(f"{match}: allocate failed")
-            sz = getattr(sc, "size", None) or getattr(sc, "size_", None)
-            w, h = (sz.width, sz.height) if sz is not None else (0, 0)
-            return cam, sc, alloc, (w, h)
-        except Exception:
-            try:
-                _m(cam, "release")()
-            except Exception:
-                pass
+            for name, camera_id in self.cameras.items():
+                matches = [c for c in available if camera_id and camera_id in c.id]
+                if len(matches) != 1:
+                    raise RuntimeError(f"{name}: expected one camera for {camera_id!r}")
+                cam = matches[0]
+                cam.acquire()
+                self.jobs[name] = {"cam": cam}
+                role = (libcamera.StreamRole.Raw if name == "ir"
+                        else libcamera.StreamRole.Viewfinder)
+                cfg = _m(cam, "generate_configuration", "generateConfiguration")([role])
+                sc = cfg.at(0)
+                if name == "rgb":
+                    sc.size = libcamera.Size(*self.rgb_size)
+                if hasattr(sc, "buffer_count"):
+                    sc.buffer_count = self.buffers
+                else:
+                    sc.bufferCount = self.buffers
+                cfg.validate()
+                cam.configure(cfg)
+                sc = cfg.at(0)
+                alloc = libcamera.FrameBufferAllocator(cam)
+                alloc.allocate(sc.stream)
+                self.jobs[name].update(sc=sc, cfg=cfg, alloc=alloc,
+                                       format=str(_value(sc, "pixel_format", "pixelFormat")))
+                allocated = alloc.buffers(sc.stream)[:self.buffers]
+                if len(allocated) < 2:
+                    raise RuntimeError(f"{name}: insufficient camera buffers")
+                for fb in allocated:
+                    cookie = len(self.requests) + 1
+                    req = _m(cam, "create_request", "createRequest")(cookie)
+                    _m(req, "add_buffer", "addBuffer")(sc.stream, fb)
+                    self.requests[cookie] = (name, fb, req)
+            for job in self.jobs.values():
+                job["cam"].start()
+                self.started.append(job["cam"])
+            for name, _, req in self.requests.values():
+                _m(self.jobs[name]["cam"], "queue_request", "queueRequest")(req)
+            self.event_fd = _value(self.cm, "event_fd", "eventFd")
+            return self
+        except BaseException:
+            self.close()
             raise
 
-    out = {"rgb": None, "ir": None}
-    rgb = ir = None
-    try:
-        rgb, rgb_sc, rgb_alloc, rgb_wh = open_one(
-            rgb_id, StreamRole.Viewfinder, rgb_size, nbuf)
-        ir, ir_sc, ir_alloc, ir_wh = open_one(ir_id, StreamRole.Raw,
-                                             None, nbuf)
-        jobs = [("rgb", rgb, rgb_sc, rgb_alloc),
-                ("ir", ir, ir_sc, ir_alloc)]
-        cookie = {}
-        targets = {}
-        nxt = [1]
+    def read(self, deadline):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("camera capture deadline exceeded")
+        if not select.select([self.event_fd], [], [], min(remaining, 0.5))[0]:
+            return []
+        frames = []
+        for req in _m(self.cm, "get_ready_requests", "getReadyRequests")():
+            name, fb, _ = self.requests[_value(req, "cookie")]
+            if _value(req, "status") != req.Status.Complete:
+                raise RuntimeError(f"{name}: request did not complete")
+            md = _value(fb, "metadata")
+            if md.status != self.libcamera.FrameMetadata.Status.Success:
+                raise RuntimeError(f"{name}: frame buffer error")
+            job = self.jobs[name]
+            sc = job["sc"]
+            w, h, stride = sc.size.width, sc.size.height, int(sc.stride)
+            blob = _read_plane(_planes(fb)[0])
+            used = int(_value(md.planes[0], "bytes_used", "bytesused"))
+            if used < h * stride:
+                raise ValueError(f"{name}: incomplete frame payload")
+            blob = blob[:used]
+            if name == "ir":
+                if job["format"] != "R10_CSI2P":
+                    raise ValueError(f"unsupported IR format: {job['format']}")
+                from .ir_capture import unpack_r10_bytes
+                gray = unpack_r10_bytes(blob[:h * stride], w, h, stride)
+                img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            else:
+                img = decode_rgb(blob, w, h, stride, job["format"])
+            controls = {getattr(k, "name", str(k)): v
+                        for k, v in _value(req, "metadata").items()}
+            frames.append(Frame(name, img, int(md.timestamp), int(md.sequence),
+                                controls.get("ExposureTime"), controls.get("AnalogueGain"),
+                                tuple(controls["ColourGains"]) if "ColourGains" in controls else None))
+            # Copy before reuse; the device will overwrite this same dma-buf.
+            req.reuse()
+            _m(job["cam"], "queue_request", "queueRequest")(req)
+        return frames
 
-        def queue_all():
-            for idx, (name, cam, sc, alloc) in enumerate(jobs):
-                bufs = _m(alloc, "buffers")(sc.stream)[:nbuf]
-                targets[name] = len(bufs)
-                for b in bufs:
-                    req = _m(cam, "create_request",
-                             "createRequest")(nxt[0])
-                    cookie[nxt[0]] = (name, b)
-                    nxt[0] += 1
-                    _m(req, "add_buffer", "addBuffer")(sc.stream, b)
-                    _m(cam, "queue_request", "queueRequest")(req)
+    def close(self):
+        for cam in reversed(self.started):
+            try:
+                cam.stop()
+            except RuntimeError:
+                pass
+        self.started.clear()
+        if self.cm is not None:
+            try:
+                _m(self.cm, "get_ready_requests", "getReadyRequests")()
+            except RuntimeError:
+                pass
+        self.requests.clear()
+        for job in reversed(list(self.jobs.values())):
+            try:
+                job["cam"].release()
+            except RuntimeError:
+                pass
+        self.jobs.clear()
 
-        for _, cam, _, _ in jobs:
-            _m(cam, "start")()
-        queue_all()
-        if on_streaming is not None:
+    def __exit__(self, *exc):
+        self.close()
+
+
+class UvcSession:
+    """Explicit RGB-only backend for a USB webcam."""
+    def __init__(self, cameras, rgb_size=(640, 480), buffers=4):
+        self.device = cameras["rgb"].removeprefix("uvc:")
+        self.size = rgb_size
+        self.cap = None
+        self.sequence = 0
+
+    def __enter__(self):
+        self.cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
+        if not self.cap.isOpened():
+            self.cap.release()
+            raise RuntimeError(f"cannot open {self.device}")
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.size[0])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.size[1])
+        return self
+
+    def read(self, deadline):
+        if time.monotonic() >= deadline:
+            raise TimeoutError("UVC capture deadline exceeded")
+        ok, img = self.cap.read()
+        if not ok or img is None:
+            raise RuntimeError("UVC capture failed")
+        self.sequence += 1
+        return [Frame("rgb", img.copy(), time.monotonic_ns(), self.sequence, None, None)]
+
+    def __exit__(self, *exc):
+        self.cap.release()
+
+
+def capture_dual_stats(rgb_id, ir_id, rgb_size=(640, 480), nbuf=4,
+                       timeout=15, on_streaming=None, settle=None,
+                       stats_cb=None, frame_cb=None):
+    """Diagnostic compatibility API; authentication uses acquisition.capture()."""
+    target = max(16, int((settle or {}).get("min_frames", 16)))
+    out, stats = {}, {}
+    deadline = time.monotonic() + timeout
+    with CameraSession({"rgb": rgb_id, "ir": ir_id}, rgb_size, min(nbuf, 16)) as session:
+        if on_streaming:
             on_streaming()
-        got = {}
-        counts = {"rgb": 0, "ir": 0}
-        stats = {n: {"frames": 0, "settled": False, "exp": None,
-                     "gain": None, "exp_hist": [], "gain_hist": [],
-                     "stable_run": 0} for n in ("rgb", "ir")}
-        stable_need = {n: targets.get(n, nbuf) for n in ("rgb", "ir")}
-        if use_settle:
-            # per-source settle replaces the fixed completion count
-            stable_need = {"rgb": want_stable, "ir": want_stable}
-        evfd = _m(cm, "event_fd", "eventFd")
-        ready = _m(cm, "get_ready_requests", "getReadyRequests")
-        deadline = time.time() + timeout
-
-        def src_done(n):
-            s = stats[n]
-            if use_settle:
-                return s["settled"] or s["frames"] >= max_frames
-            return counts[n] >= targets.get(n, nbuf)
-
-        while time.time() < deadline and \
-                not (src_done("rgb") and src_done("ir")):
-            select.select([evfd() if callable(evfd) else evfd], [], [], 1.0)
-            for req in ready():
-                st = _m(req, "status")
-                complete = getattr(getattr(req, "Status", req),
-                                   "Complete", None)
-                if complete is not None and st != complete:
-                    continue
-                name, fb = cookie.get(_m(req, "cookie"), (None, None))
-                if name is None or fb is None:
-                    continue
-                exp, gain = _meta_exp_gain(req)
-                s = stats[name]
-                s["frames"] += 1
-                prev_e, prev_g = s["exp"], s["gain"]
-                if exp is not None:
-                    s["exp"] = exp
-                    s["exp_hist"].append(exp)
-                if gain is not None:
-                    s["gain"] = gain
-                    s["gain_hist"].append(gain)
-                if stats_cb is not None:
-                    try:
-                        stats_cb(name, s["frames"], exp, gain)
-                    except Exception:
-                        pass
-                if use_settle and s["frames"] >= min_frames and \
-                        prev_e is not None and exp is not None and \
-                        prev_g is not None and gain is not None:
-                    de = abs(exp - prev_e) / max(abs(prev_e), 1)
-                    dg = abs(gain - prev_g)
-                    if de <= exp_tol and dg <= gain_tol:
-                        s["stable_run"] += 1
-                    else:
-                        s["stable_run"] = 0
-                    if s["stable_run"] >= want_stable:
-                        s["settled"] = True
-                counts[name] = counts.get(name, 0) + 1
-                got[name] = fb  # keep last completed buffer per camera
-                if frame_cb is not None:
-                    try:
-                        frame_cb(name, counts[name] - 1, fb)
-                    except Exception:
-                        pass
-        # decode last completed buffer per camera
-        if "rgb" in got:
-            w, h = rgb_wh
-            planes = _planes(got["rgb"])
-            blob = _read_plane(planes[0])
-            stride = len(blob) // h
-            out["rgb"] = _decode_abgr(blob, w, h, stride)
-        if "ir" in got:
-            from facelock.ir_capture import unpack_r10_bytes
-            w, h = ir_wh
-            planes = _planes(got["ir"])
-            blob = _read_plane(planes[0])
-            stride = len(blob) // h
-            gray = unpack_r10_bytes(blob, w, h, stride)
-            out["ir"] = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    finally:
-        for cam in (rgb, ir):
-            if cam is not None:
-                for op in ("stop", "release"):
-                    try:
-                        _m(cam, op)()
-                    except Exception:
-                        pass
-    if out["rgb"] is None and out["ir"] is None:
-        raise RuntimeError("dual capture: no completed buffers")
-    for s in stats.values():
-        s.pop("stable_run", None)
+        while any(stats.get(s, {}).get("frames", 0) < target for s in ("rgb", "ir")):
+            for frame in session.read(deadline):
+                name = frame.source
+                count = stats.get(name, {}).get("frames", 0) + 1
+                out[name] = frame.image
+                stats[name] = {"frames": count, "exp": frame.exposure,
+                               "gain": frame.gain, "settled": False}
+                if stats_cb:
+                    stats_cb(name, count, frame.exposure, frame.gain)
+                if frame_cb:
+                    frame_cb(name, count - 1, frame.image)
     return out, stats
+
+
+def capture_dual(*args, **kwargs):
+    return capture_dual_stats(*args, **kwargs)[0]

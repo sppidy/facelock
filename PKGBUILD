@@ -3,8 +3,8 @@
 # archive of the exact checkout, without fetching an older upstream tag.
 _giturl="https://github.com/sppidy/facelock.git"
 pkgname=facelock
-pkgver=0.1.0
-pkgrel=3
+pkgver=0.2.0
+pkgrel=1
 _gittag="v${pkgver}-${pkgrel}"
 pkgdesc="Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops"
 arch=('any')
@@ -37,15 +37,18 @@ package() {
   install -Dm755 facelock-pam-enable "$pkgdir/usr/bin/facelock-pam-enable"
   install -Dm755 setup_models.py "$pkgdir/usr/lib/facelock/setup_models.py"
   install -Dm755 enroll.py "$pkgdir/usr/lib/facelock/enroll.py"
+  install -Dm755 runner.py "$pkgdir/usr/lib/facelock/runner.py"
+  install -Dm755 diagnose.py "$pkgdir/usr/lib/facelock/diagnose.py"
   install -Dm755 verify.py "$pkgdir/usr/lib/facelock/verify.py"
   install -Dm755 pam_check.sh "$pkgdir/usr/lib/facelock/pam_check.sh"
   install -Dm644 facelock/*.py -t "$pkgdir/usr/lib/facelock/facelock/"
   install -Dm644 profiles/*.yaml -t "$pkgdir/usr/share/facelock/profiles/"
+  install -Dm644 tuning/simple/*.yaml -t "$pkgdir/usr/share/facelock/tuning/simple/"
   install -Dm644 config.yaml "$pkgdir/usr/share/doc/facelock/config.example.yaml"
   install -Dm644 README.md "$pkgdir/usr/share/doc/facelock/README.md"
   install -Dm644 99-facelock-ir-led.rules \
     "$pkgdir/usr/lib/udev/rules.d/99-facelock-ir-led.rules"
   install -Dm644 config.yaml "$pkgdir/etc/facelock/config.yaml"
   # Keep biometric storage private to root; do not embed a build-host video GID.
-  install -dm770 "$pkgdir/var/lib/facelock"
+  install -dm700 "$pkgdir/var/lib/facelock"
 }

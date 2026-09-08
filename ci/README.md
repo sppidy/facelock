@@ -24,11 +24,14 @@ Local source overrides are `FACELOCK_SOURCE_ARCHIVE` and required
 Without these variables PKGBUILD fetches the versioned public release tag.
 
 `python3 -B -m unittest discover -s tests -v` runs offline classification and
-syntax tests. CI additionally inspects package metadata, paths, ownership,
+syntax tests plus NumPy/OpenCV authentication regressions. Install
+`numpy opencv-python-headless PyYAML` before running them. CI inspects package
+metadata, paths, ownership,
 modes, syntax and matching runtime payloads without installing or activating PAM.
 Packages do not include Git internals, raw captures, downloaded models or
 enrolled biometric data. Model setup, enrollment and PAM activation remain
-manual. The staged camera stack requires explicit `FACELOCK_STAGED` opt-in.
+manual. Set `runtime.stack` in a trusted configuration for privileged runs.
+`FACELOCK_STAGED` is only a developer diagnostic override.
 
 Each release includes the source archive, commit/run provenance, resolved
 container image digest, Debian build-tool inventory and `SHA256SUMS`. The

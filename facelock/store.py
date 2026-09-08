@@ -1,59 +1,116 @@
-"""Embedding store.
+"""Atomic root-only enrollment with HMAC integrity (not encryption).
 
-Layout is group-readable by `video` (not root-only): sudo runs PAM auth
-helpers as the *invoking* user, so face-unlock must read embeddings and
-append logs without root. The video group on this box is just the owner.
+Legacy unsealed .npz files are never used for authentication. Re-enrollment
+is required rather than blessing files from a formerly writable directory.
 """
-import grp
+import hashlib
+import hmac
+import io
+import json
 import os
+from pathlib import Path
+import re
+import stat
+import tempfile
 
 import numpy as np
 
-STORE_MODE_DIR = 0o750
-STORE_MODE_FILE = 0o640
-STORE_GROUP = "video"
+from .security import private_read
+
+MAGIC = b"FACELOCK2\n"
+STORE_MODE_DIR = 0o700
+STORE_MODE_FILE = 0o600
 
 
-def _group_to(path):
+def valid_user(user):
+    if not isinstance(user, str) or not re.fullmatch(r"[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}\$?", user):
+        raise ValueError("invalid account name")
+    return user
+
+
+def ensure_dir(store_dir, owner=0):
+    path = Path(store_dir)
+    path.mkdir(mode=STORE_MODE_DIR, parents=True, exist_ok=True)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != owner or info.st_mode & 0o077:
+        raise PermissionError(f"store must be {owner}-owned mode 0700: {path}")
+    return path
+
+
+def _key(directory, create, owner):
+    path = directory / ".seal-key"
+    if create:
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(fd, "wb") as f:
+                f.write(os.urandom(32))
+                f.flush()
+                os.fsync(f.fileno())
+    key = private_read(path, owner, 32)
+    if len(key) != 32:
+        raise ValueError("invalid store seal key")
+    return key
+
+
+def _vectors(data):
+    if not data or set(data) - {"rgb", "ir"}:
+        raise ValueError("invalid enrollment domains")
+    result = {}
+    for sensor, values in data.items():
+        a = np.asarray(values, dtype=np.float64)
+        norm = np.linalg.norm(a)
+        if a.shape != (128,) or not np.isfinite(a).all() or not 0.99 <= norm <= 1.01:
+            raise ValueError(f"invalid {sensor} embedding")
+        result[sensor] = a / norm
+    return result
+
+
+def save(store_dir, user, *, metadata, owner=0, **vectors):
+    valid_user(user)
+    directory = ensure_dir(store_dir, owner)
+    key = _key(directory, True, owner)
+    output = io.BytesIO()
+    np.savez(output, **_vectors(vectors),
+             _metadata=np.frombuffer(json.dumps(metadata, sort_keys=True).encode(), np.uint8))
+    payload = output.getvalue()
+    mac = hmac.digest(key, user.encode() + b"\0" + payload, "sha256")
+    fd, temporary = tempfile.mkstemp(prefix=".enroll-", dir=directory)
     try:
-        gid = grp.getgrnam(STORE_GROUP).gr_gid
-        os.chown(path, -1, gid)
-    except (KeyError, PermissionError, OSError):
-        pass
+        with os.fdopen(fd, "wb") as f:
+            os.fchmod(f.fileno(), STORE_MODE_FILE)
+            f.write(MAGIC + mac + payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, directory / f"{user}.face")
+        dfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
-def _path(store_dir, user):
-    return os.path.join(store_dir, f"{user}.npz")
-
-
-def ensure_dir(store_dir):
-    os.makedirs(store_dir, mode=STORE_MODE_DIR, exist_ok=True)
+def load(store_dir, user, *, owner=0):
+    valid_user(user)
+    directory = ensure_dir(store_dir, owner)
     try:
-        os.chmod(store_dir, STORE_MODE_DIR)
-    except OSError:
-        pass
-    _group_to(store_dir)
-
-
-def save(store_dir, user, rgb=None, ir=None):
-    ensure_dir(store_dir)
-    data = {}
-    if rgb is not None:
-        data["rgb"] = np.asarray(rgb, dtype=np.float64)
-    if ir is not None:
-        data["ir"] = np.asarray(ir, dtype=np.float64)
-    p = _path(store_dir, user)
-    np.savez(p, **data)
-    try:
-        os.chmod(p, STORE_MODE_FILE)
-    except OSError:
-        pass
-    _group_to(p)
-
-
-def load(store_dir, user):
-    p = _path(store_dir, user)
-    if not os.path.exists(p):
-        return {}
-    z = np.load(p)
-    return {k: np.asarray(z[k], dtype=np.float64) for k in z.files}
+        blob = private_read(directory / f"{user}.face", owner)
+    except FileNotFoundError:
+        return {}, {}
+    if not blob.startswith(MAGIC) or len(blob) <= len(MAGIC) + 32:
+        raise ValueError("invalid sealed enrollment")
+    key = _key(directory, False, owner)
+    mac, payload = blob[len(MAGIC):len(MAGIC) + 32], blob[len(MAGIC) + 32:]
+    expected = hmac.digest(key, user.encode() + b"\0" + payload, "sha256")
+    if not hmac.compare_digest(mac, expected):
+        raise ValueError("enrollment integrity check failed")
+    # Do not parse arrays until the complete payload and account binding verify.
+    with np.load(io.BytesIO(payload), allow_pickle=False) as z:
+        metadata = json.loads(z["_metadata"].tobytes())
+        vectors = _vectors({k: z[k] for k in z.files if k != "_metadata"})
+    return vectors, metadata

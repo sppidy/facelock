@@ -1,4 +1,6 @@
 post_install() {
+  chown root:root /var/lib/facelock
+  chmod 700 /var/lib/facelock
   echo "==> facelock installed."
   echo "    1. Pick a profile: facelock-detect, then copy one from"
   echo "       /usr/share/facelock/profiles/ to /etc/facelock/config.yaml"
@@ -10,6 +12,9 @@ post_install() {
 }
 
 post_upgrade() {
+  chown root:root /var/lib/facelock
+  chmod 700 /var/lib/facelock
+  echo "    v0.2 needs fresh enrollment and PAM activation (seteuid)."
   echo "==> facelock upgraded. /etc/facelock/config.yaml was preserved;"
   echo "    compare with /usr/share/doc/facelock/config.example.yaml for"
   echo "    new options."

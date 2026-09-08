@@ -1,33 +1,13 @@
-# Generic UVC webcam laptop (any arch). No libcamera, no IR, no flash.
-# Works out of the box wherever a /dev/videoN MJPEG/YUYV webcam exists.
-name: "generic-uvc"
-machine: "any laptop with a USB/UVC webcam"
-note: "RGB-only. Set cameras.rgb to your webcam node (see facelock-detect)."
-
+# Explicit RGB-only USB webcam profile. No active IR check.
+auth:
+  required_sensors: [rgb]
 cameras:
-  rgb: "uvc:/dev/video0"
-  ir: null
-
+  rgb: uvc:/dev/video0
 capture:
-  mode: "uvc"
-  rgb_width: 640
-  rgb_height: 480
-  buffers: 8
-  width: 640
-  height: 480
-  warmup_sec: 1.5
-  timeout_sec: 30
-
-match:
-  rgb_threshold: 0.38
-  ir_threshold: 0.30
-  detector_min_score: 0.6
-
-# --- standard sections (same meaning as config.yaml) ---
+  mode: uvc
 models:
-  dir: "/usr/share/facelock/models"
+  dir: /usr/share/facelock/models
 store:
-  dir: "/var/lib/facelock"
+  dir: /var/lib/facelock
 pam:
-  user: "spidy"
-  verify_timeout_sec: 25
+  user: ''

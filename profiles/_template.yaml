@@ -1,63 +1,14 @@
-# Machine profile template. Copy to profiles/<machine>.yaml and fill in.
-# `facelock-detect` prints most of these values for you.
-name: "template"
-machine: "MAKE MODEL (SoC)"
-note: "what works / what doesn't on this box"
-
-# libcamera camera-names (from `cam -l`), or UVC device nodes.
-# ir: null means no usable IR sensor -> RGB-only mode.
+# One libcamera camera. Use "sequential" with [rgb, ir] if concurrent routes
+# are unavailable; this is an explicit policy, never a fallback after failure.
+auth:
+  required_sensors: [rgb]
 cameras:
-  rgb: "/base/soc@0/.../camera@36"
-  ir: null
-
-# Raw IR sensor geometry (only if ir is a libcamera mono sensor that needs
-# the cam-raw path). Delete section when ir is null or natively supported.
-ir_sensor:
-  width: 560
-  height: 360
-  stride: 704        # bytes per row incl. padding
-  packing: "r10-csi2p"
-
-# IR illuminator (flash-class LED). Delete section when absent.
-ir_led:
-  path: "/sys/class/leds/ir:flash/brightness"
-  strobe_path: "/sys/class/leds/ir:flash/flash_strobe"
-  brightness: 128
-
+  rgb: /base/soc@0/.../camera@36
 capture:
-  # dual-pycamera: one process, both sensors (needs disjoint routes +
-  #   staged/patched libcamera, or stock libcamera on boards that route OK)
-  # sequential:   RGB via gst libcamerasrc, IR via cam raw (works everywhere
-  #   libcamera sees the sensors, one at a time)
-  # uvc:          plain /dev/videoN webcams via gst (no libcamera needed)
-  mode: "sequential"
-  rgb_width: 640
-  rgb_height: 480
-  buffers: 8
-  width: 640
-  height: 480
-  warmup_sec: 1.5
-  timeout_sec: 30
-
-match:
-  rgb_threshold: 0.38
-  ir_threshold: 0.30
-  detector_min_score: 0.6
-
-# --- standard sections (same meaning as config.yaml) ---
-ir_capture:
-  frames: 10
-  black_mean_min: 2.0
+  mode: sequential
 models:
-  dir: "/usr/share/facelock/models"
-fusion:
-  mode: "fallback"
-dual:
-  rgb_width: 640
-  rgb_height: 480
-  buffers: 8
+  dir: /usr/share/facelock/models
 store:
-  dir: "/var/lib/facelock"
+  dir: /var/lib/facelock
 pam:
-  user: "spidy"
-  verify_timeout_sec: 25
+  user: ''
