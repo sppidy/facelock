@@ -3,7 +3,9 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends makepkg pacman-package-manager \
-  build-essential fakeroot debhelper devscripts python3 git zstd ca-certificates libarchive-tools
+  build-essential fakeroot debhelper devscripts python3 git zstd ca-certificates libarchive-tools dh-python meson ninja-build pkg-config \
+  python3-dev python3-jinja2 python3-yaml python3-ply pybind11-dev patchelf \
+  libyaml-dev libgnutls28-dev libevent-dev libudev-dev libssl-dev
 test "$(dpkg --print-architecture)" = arm64
 useradd -m builder
 install -d /var/lib/pacman/local
@@ -12,7 +14,8 @@ cp /out/facelock-source.tar /out/provenance.json /build/
 cp /checkout/ci/build-user.sh /build/
 chown builder:builder /build/*
 runuser -u builder -- bash /build/build-user.sh
-cp /build/arch/*.pkg.tar.zst /build/*.deb /out/
+cp /build/*.deb /out/
+cp /build/deb/facelock/debian/libcamera-patched-source.tar.gz /out/libcamera-debian-source.tar.gz
 set -x
 repo_work=/repo
 rm -rf "$repo_work" && install -d -o builder -g builder "$repo_work"

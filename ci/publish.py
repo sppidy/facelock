@@ -26,7 +26,7 @@ def main():
     if any(ref['ref'] == f'refs/tags/{tag}' for ref in refs):
         raise SystemExit(f'Refusing existing tag {tag}; bump pkgrel for a new stable release.')
     notes = (f"Commit: {metadata['commit']}\n\nBuild: {metadata['run_url']}\n\n"
-             'Native ARM64 Debian trixie build. Arch payload is architecture-independent (any). '
+             'Native ARM64 builds for Debian trixie and Arch Linux ARM, each with a private patched libcamera. '
              'SHA256SUMS covers packages, source archive and build provenance. '
              'Packaging checks only, not hardware authentication certification. '
              'PAM activation is manual; retain password login and test in a second session.')

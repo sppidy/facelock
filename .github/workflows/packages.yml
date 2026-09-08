@@ -14,7 +14,7 @@ jobs:
   build:
     if: github.ref_type == 'branch'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 60
     outputs:
       tag: ${{ steps.prepare.outputs.tag }}
       stable: ${{ steps.prepare.outputs.stable }}
@@ -33,7 +33,12 @@ jobs:
       - name: Classify and archive exact checkout
         id: prepare
         run: python3 ci/prepare.py
-      - name: Build and inspect both packages in Debian trixie
+      - name: Build embedded runtime and package on Arch Linux ARM
+        run: |
+          bash ci/arch-rootfs.sh
+          docker run --rm -v "$PWD:/checkout:ro" -v "$PWD/dist:/out" \
+            facelock-arch-builder bash /checkout/ci/build-arch.sh
+      - name: Build Debian package and inspect both native packages
         run: |
           docker pull debian:trixie
           docker image inspect debian:trixie --format '{{index .RepoDigests 0}}' > dist/builder-image.txt

@@ -4,24 +4,25 @@
 _giturl="https://github.com/sppidy/facelock.git"
 pkgname=facelock
 pkgver=0.3.0
-pkgrel=1
+pkgrel=2
 _gittag="v${pkgver}-${pkgrel}"
 pkgdesc="Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops"
-arch=('any')
+arch=('aarch64')
 url="https://github.com/sppidy/facelock"
 license=('MIT')
-depends=('python' 'python-opencv' 'python-numpy' 'python-yaml'
-         'gstreamer' 'gst-plugins-base' 'v4l-utils' 'libcamera' 'pam')
-optdepends=('python-libcamera: concurrent dual-sensor capture'
+# Keep package metadata aligned with the compiled CPython binding.
+depends=('python' 'python>=3.14' 'python<3.15' 'python-opencv' 'python-numpy' 'python-yaml'
+         'gstreamer' 'gst-plugins-base' 'v4l-utils' 'pam' 'libyaml' 'gnutls' 'libevent' 'systemd-libs')
+optdepends=('python-libcamera: optional system runtime for other camera profiles'
             'gst-plugin-libcamera: libcamera cameras over GStreamer'
             'gst-plugins-good: UVC webcams over GStreamer (v4l2src)'
             'hyprlock: face unlock on the Hyprland lock screen'
             'gtk4: graphical enrollment wizard'
             'python-gobject: graphical enrollment wizard'
             'polkit: authorize enrollment from the desktop')
-makedepends=('git' 'tar')
+makedepends=('git' 'tar' 'meson' 'ninja' 'pkgconf' 'python-jinja' 'python-yaml' 'python-ply' 'pybind11' 'patchelf' 'openssl')
 backup=('etc/facelock/config.yaml')
-options=('!debug') # Python and shell only; no separate debug package.
+options=('!debug') # Keep private runtime debug symbols out of a separate package.
 if [[ -n ${FACELOCK_SOURCE_ARCHIVE:-} ]]; then
   : "${FACELOCK_SOURCE_SHA256:?local source requires SHA256}"
   source=("$FACELOCK_SOURCE_ARCHIVE")
@@ -33,8 +34,17 @@ else
 fi
 install=facelock.install
 
+build() {
+  cd "$pkgname"
+  python3 -c 'import sys; assert sys.version_info[:2] == (3, 14), "Update the Arch Python ABI bounds before rebuilding"'
+  python3 camera-runtime/build.py --work "$srcdir/camera-build" --output "$srcdir/camera-runtime"
+}
+
 package() {
   cd "$pkgname"
+  test -f "$srcdir/camera-runtime/manifest.json"
+  install -dm755 "$pkgdir/usr/lib/facelock"
+  cp -a "$srcdir/camera-runtime" "$pkgdir/usr/lib/facelock/camera"
   install -Dm755 facelock-run "$pkgdir/usr/bin/facelock-run"
   install -Dm755 facelock-detect "$pkgdir/usr/bin/facelock-detect"
   install -Dm755 facelock-pam-enable "$pkgdir/usr/bin/facelock-pam-enable"

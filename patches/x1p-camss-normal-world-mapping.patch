@@ -141,3 +141,28 @@ diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/
  	.vfe_num = ARRAY_SIZE(vfe_res_x1p42100),
  };
  
+
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -5805,6 +5805,20 @@
++static ssize_t facelock_capability_show(struct device *dev,
++                                       struct device_attribute *attr, char *buf)
++{
++	struct camss *camss = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%s\n", camss->res->version == CAMSS_X1P42100 ?
++			  "x1p-normal-world-v1" : "unsupported");
++}
++static DEVICE_ATTR_RO(facelock_capability);
++static struct attribute *facelock_attrs[] = {
++	&dev_attr_facelock_capability.attr, NULL,
++};
++ATTRIBUTE_GROUPS(facelock);
+ static struct platform_driver qcom_camss_driver = {
+ 	.probe = camss_probe,
+ 	.remove = camss_remove,
+ 	.driver = {
++		.dev_groups = facelock_groups,
+ 		.name = "qcom-camss",
+ 		.of_match_table = camss_dt_match,

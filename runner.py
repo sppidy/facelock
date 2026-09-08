@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated launcher with an explicit camera runtime and a bounded worker."""
 import argparse
+import json
 import os
 from pathlib import Path
 import runpy
@@ -29,6 +30,9 @@ def runtime_environment(cfg, privileged):
     for key in ("PAM_USER", "PAM_TYPE", "PAM_SERVICE", "SUDO_USER"):
         if key in os.environ:
             env[key] = os.environ[key]
+    if cfg["runtime"]["require_camss"]:
+        from facelock.kernel import require_camss
+        require_camss()
     stack = cfg["runtime"]["stack"]
     if not privileged:
         stack = os.environ.get("FACELOCK_STAGED") or stack
@@ -44,8 +48,18 @@ def runtime_environment(cfg, privileged):
                      routing / "libcamera/configuration.yaml", workers / "soft_ipa_proxy"):
             if not path.exists():
                 raise FileNotFoundError(f"incomplete camera stack: {path}")
+        manifest_path = root / "manifest.json"
+        if manifest_path.exists():
+            if privileged:
+                trusted(manifest_path)
+            manifest = json.loads(manifest_path.read_text())
+            if manifest.get("python_abi") != sysconfig.get_config_var("SOABI"):
+                raise ValueError("bundled camera runtime Python ABI changed; rebuild/reinstall Facelock")
+        elif str(root) == "/usr/lib/facelock/camera":
+            raise ValueError("bundled camera runtime manifest is missing")
         binding = extra_python / "libcamera" / ("_libcamera" + sysconfig.get_config_var("EXT_SUFFIX"))
-        if not list(libraries.glob("libcamera.so*")) or not binding.is_file():
+        if (not list(libraries.glob("libcamera.so*")) or
+                not list((libraries / "base").glob("libcamera-base.so*")) or not binding.is_file()):
             raise ValueError("camera stack is missing its library or matching Python binding")
         if privileged:
             trusted(root)

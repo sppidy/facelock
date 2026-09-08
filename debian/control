@@ -2,16 +2,18 @@ Source: facelock
 Maintainer: sppidy <sppidytg@gmail.com>
 Section: utils
 Priority: optional
-Build-Depends: debhelper-compat (= 13)
+Build-Depends: debhelper-compat (= 13), dh-python, build-essential, git, meson, ninja-build,
+ pkg-config, python3-dev, python3-jinja2, python3-yaml, python3-ply,
+ pybind11-dev, patchelf, libyaml-dev, libgnutls28-dev, libevent-dev, libudev-dev, libssl-dev
 Rules-Requires-Root: no
 
 Package: facelock
 Architecture: arm64
-Depends: ${misc:Depends}, python3, python3-opencv, python3-numpy,
+Depends: ${misc:Depends}, ${shlibs:Depends}, ${python3:Depends}, ${facelock:Python}, python3, python3-opencv, python3-numpy,
  python3-yaml, gstreamer1.0-tools, gstreamer1.0-plugins-base,
  gstreamer1.0-plugins-good, v4l-utils, libcamera-tools
-Recommends: python3-libcamera
-Suggests: python3-gi, gir1.2-gtk-4.0, pkexec
+Suggests: python3-libcamera,
+ python3-gi, gir1.2-gtk-4.0, pkexec
 Description: Howdy-style face login for libcamera/ISP and UVC cameras
  Face authentication for Linux rebuilt for machines where the camera is
  not a plain UVC webcam: libcamera/ISP sensors (e.g. Qualcomm CAMSS

@@ -25,7 +25,7 @@ DEFAULTS = {
     "pam": {"user": "", "verify_timeout_sec": 20},
     "models": {"dir": "/usr/share/facelock/models"},
     "store": {"dir": "/var/lib/facelock"},
-    "runtime": {"stack": "", "tuning": ""},
+    "runtime": {"stack": "", "tuning": "", "require_camss": False},
     "ir_led": {"mode": "flash", "path": "/sys/class/leds/ir:flash/brightness", "brightness": 128,
                "strobe_path": "/sys/class/leds/ir:flash/flash_strobe"},
 }
@@ -138,6 +138,11 @@ def validate(cfg):
             raise ValueError(f"{section}.{key} is required")
     if not isinstance(cfg["pam"]["user"], str):
         raise ValueError("pam.user must be a string")
+    if type(cfg["runtime"]["require_camss"]) is not bool:
+        raise ValueError("runtime.require_camss must be a boolean")
+    if any("/base/soc@0/cci@" in cfg["cameras"][s] for s in required):
+        if not cfg["runtime"]["require_camss"]:
+            raise ValueError("A14 cameras require runtime.require_camss: true")
     greeter = cfg["feedback"]["greeter_user"]
     if not isinstance(greeter, str):
         raise ValueError("feedback.greeter_user must be an account name")

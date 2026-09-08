@@ -8,7 +8,7 @@ import sys
 import tarfile
 
 
-def inspect_payload(archive, deb=False):
+def inspect_payload(archive, deb=False, elf_machine=183):
     files = {}
     for member in archive.getmembers():
         name = member.name.removeprefix('./').rstrip('/')
@@ -22,8 +22,17 @@ def inspect_payload(archive, deb=False):
         files[name] = data
         if name in {'.PKGINFO', '.BUILDINFO', '.MTREE', '.INSTALL'} and not deb:
             continue
+        if name.startswith('usr/lib/facelock/camera/'):
+            assert member.uid == member.gid == 0, name
+            assert member.mode in (0o644, 0o755), name
+            if data.startswith(b'\x7fELF'):
+                assert data[4] == 2 and data[5] == 1, name
+                assert int.from_bytes(data[18:20], 'little') == elf_machine, name
+            else:
+                assert name.endswith(('.py', '.yaml', '.json', '.txt', '.rst', '.sign')) or '/LICENSES/' in name, name
+            continue
         allowed = (
-            name in {'usr/bin/facelock-run', 'usr/bin/facelock-detect',
+            name in {'usr/share/python3/runtime.d/facelock.rtupdate', 'usr/bin/facelock-run', 'usr/bin/facelock-detect',
                      'usr/bin/facelock-auth', 'usr/lib/systemd/system/facelock-auth.socket',
                      'usr/lib/systemd/system/facelock-auth@.service',
                      'usr/bin/facelock-feedback', 'usr/bin/facelock-enroll',
@@ -34,10 +43,11 @@ def inspect_payload(archive, deb=False):
             or (name.startswith('usr/lib/facelock/') and name.endswith(('.py', '/pam_check.sh')))
             or (name.startswith(('usr/share/facelock/profiles/', 'usr/share/facelock/tuning/simple/')) and name.endswith('.yaml'))
             or (name.startswith('usr/share/doc/facelock/') and Path(name).name in {
-                'README.md', 'README.md.gz', 'config.example.yaml', 'changelog.Debian.gz'})
+                'README.md', 'README.md.gz', 'config.example.yaml', 'changelog.Debian.gz', 'changelog.gz'})
         )
         assert allowed, f'Unexpected payload: {name}'
         executable = name.startswith('usr/bin/') or name in {
+            'usr/share/python3/runtime.d/facelock.rtupdate',
             'usr/lib/facelock/setup_models.py', 'usr/lib/facelock/enroll.py',
             'usr/lib/facelock/verify.py', 'usr/lib/facelock/pam_check.sh',
             'usr/lib/facelock/runner.py', 'usr/lib/facelock/diagnose.py',
@@ -99,7 +109,7 @@ def main():
     entry = next((n for n in names if n.endswith('/desc')), None)
     assert entry is not None, 'no desc entry in repo db'
     desc = db.extractfile(db.getmember('./' + entry if './' + entry in db.getnames() else entry)).read().decode()
-    assert f'facelock-{version}-any.pkg.tar.zst' in desc, desc[:400]
+    assert f'facelock-{version}-aarch64.pkg.tar.zst' in desc, desc[:400]
     assert '%FILENAME%' in desc and '%VERSION%' in desc
     metadata = subprocess.check_output(['dpkg-deb', '-f', str(debs[0]),
                                        'Package', 'Version', 'Architecture'], text=True)
@@ -117,11 +127,20 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
         archfiles = inspect_payload(archive)
     info = archfiles['.PKGINFO'].decode()
-    for field in ['pkgname = facelock', f'pkgver = {version}', 'arch = any',
+    for field in ['pkgname = facelock', f'pkgver = {version}', 'arch = aarch64',
                   'backup = etc/facelock/config.yaml', 'depend = python']:
         assert field in info.splitlines(), field
     for name in debfiles.keys() & archfiles.keys():
-        assert debfiles[name] == archfiles[name], f'Payload differs: {name}'
+        if not name.startswith('usr/lib/facelock/camera/'):
+            assert debfiles[name] == archfiles[name], f'Payload differs: {name}'
+    for payload in (debfiles, archfiles):
+        base = 'usr/lib/facelock/camera/'
+        manifest = json.loads(payload[base + 'manifest.json'])
+        assert manifest['commit'] == '597a5bb97bf9257790edf21020c679aa666ba307'
+        assert manifest['machine'] == 'aarch64'
+        assert manifest['camss_capability'] == 'x1p-normal-world-v1'
+        assert base + 'build/src/libcamera/proxy/worker/soft_ipa_proxy' in payload
+        assert any(n.startswith(base + 'build/src/py/libcamera/_libcamera.') and n.endswith('.so') for n in payload)
     print(metadata + info)
 
 

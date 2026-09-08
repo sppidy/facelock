@@ -79,6 +79,9 @@ class PhaseCollector:
 
 def capture(cfg, session_factory=CameraSession, driver_factory=illumination_driver,
             collect_stereo=False):
+    if cfg["runtime"]["require_camss"]:
+        from .kernel import require_camss
+        require_camss()
     required = cfg["auth"]["required_sensors"]
     mode = cfg["capture"]["mode"]
     pairs = reconstruction = None

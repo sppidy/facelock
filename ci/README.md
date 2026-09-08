@@ -12,12 +12,20 @@ the publisher never replaces releases, tags or assets. An interrupted draft
 is retained for inspection, not silently overwritten. The old `v0.1.0` tag
 is not used or changed by this workflow.
 
-Both packages use one SHA256-verified `git archive` of `GITHUB_SHA` on the
-native `ubuntu-24.04-arm` runner in Debian trixie. The checkout is mounted
-read-only; makepkg and dpkg run as an unprivileged builder in separate trees.
-Debian's makepkg uses `--nodeps` because Arch runtime packages are not Debian
-build dependencies. This project has no compiled payload: the Arch package
-declares `any`, while the Debian package currently declares `arm64`.
+Both packages use the same SHA256-verified Facelock source archive. The
+embedded camera runtime is compiled separately on native ARM64: Arch Linux
+ARM builds the pacman package, Debian trixie builds the `.deb`. Runtime bytes
+may differ because the Python ABIs and system libraries differ; common
+Facelock application files must match byte for byte. Both packages contain
+ELF binaries and are architecture-specific (`aarch64` / `arm64`).
+
+The Arch builder starts from the official rootfs, verified against the pinned
+Arch Linux ARM signing fingerprint before import. Its rootfs hash and installed
+package inventory are published. The Debian builder image digest and package
+inventory are also published. Source is read-only in both containers; package
+builds run as an unprivileged builder. The pinned libcamera commit is fetched
+and patched without Meson dependency downloads. Native smoke tests check the
+binding import and dynamic-library resolution before packaging.
 
 Local source overrides are `FACELOCK_SOURCE_ARCHIVE` and required
 `FACELOCK_SOURCE_SHA256`. CI also sets `FACELOCK_PACKAGE_VERSION` for nightlies.
@@ -28,7 +36,7 @@ syntax tests plus NumPy/OpenCV authentication regressions. Install
 `numpy opencv-python-headless PyYAML` before running them. CI inspects package
 metadata, paths, ownership,
 modes, syntax and matching runtime payloads without installing or activating PAM.
-Packages do not include Git internals, raw captures, downloaded models or
+Packages include a private camera runtime and its licenses, but no Git internals, raw captures, downloaded models or
 enrolled biometric data. Model setup, enrollment and PAM activation remain
 manual. Set `runtime.stack` in a trusted configuration for privileged runs.
 `FACELOCK_STAGED` is only a developer diagnostic override.

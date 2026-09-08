@@ -21,7 +21,15 @@ done
 
 echo '== 1/5 deps =='
 sudo pacman -S --needed --noconfirm \
-  python-opencv python-numpy python-yaml gst-plugins-base gstreamer libcamera v4l-utils
+  python-opencv python-numpy python-yaml gst-plugins-base gstreamer v4l-utils \
+  base-devel git meson ninja pkgconf python-jinja python-ply pybind11 patchelf \
+  openssl libyaml gnutls libevent systemd-libs
+runtime_work=$(mktemp -d)
+python3 camera-runtime/build.py --work "$runtime_work/build" --output "$runtime_work/camera"
+sudo install -d -m755 /usr/local/lib/facelock/camera-runtimes
+runtime_name="$(date +%Y%m%d%H%M%S)-$$"
+sudo cp -a "$runtime_work/camera" "/usr/local/lib/facelock/camera-runtimes/$runtime_name"
+sudo chown -R root:root "/usr/local/lib/facelock/camera-runtimes/$runtime_name"
 
 echo '== 2/5 files =='
 sudo mkdir -p /usr/local/lib/facelock /usr/local/share/facelock \
@@ -53,10 +61,12 @@ if [ -n "$PROFILE" ]; then
   [ -f "profiles/$PROFILE.yaml" ] || { echo "no such profile: $PROFILE"; exit 1; }
   [ -f /etc/facelock/config.yaml ] && \
     sudo cp /etc/facelock/config.yaml "/etc/facelock/config.yaml.bak.$(date +%s)"
-  sudo cp "profiles/$PROFILE.yaml" /etc/facelock/config.yaml
+  sed "s|/usr/lib/facelock/camera|/usr/local/lib/facelock/camera-runtimes/$runtime_name|g" \
+    "profiles/$PROFILE.yaml" | sudo tee /etc/facelock/config.yaml >/dev/null
   echo "installed profile $PROFILE (edit pam.user inside for your login)"
 elif [ ! -f /etc/facelock/config.yaml ]; then
-  sudo cp config.yaml /etc/facelock/config.yaml
+  sed "s|/usr/lib/facelock/camera|/usr/local/lib/facelock/camera-runtimes/$runtime_name|g" \
+    config.yaml | sudo tee /etc/facelock/config.yaml >/dev/null
 fi
 sudo chmod 755 /usr/local/lib/facelock/*.py \
   /usr/local/lib/facelock/pam_check.sh

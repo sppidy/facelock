@@ -44,12 +44,12 @@ class PackagingTests(unittest.TestCase):
                 os.chdir(previous)
 
     def test_syntax_and_recipe(self):
-        for path in list(ROOT.glob('*.py')) + list((ROOT / 'facelock').glob('*.py')) + list((ROOT / 'ci').glob('*.py')) + [ROOT / name for name in ('facelock-detect', 'facelock-feedback', 'facelock-enroll', 'facelock-auth')]:
+        for path in list(ROOT.glob('*.py')) + list((ROOT / 'facelock').glob('*.py')) + list((ROOT / 'ci').glob('*.py')) + list((ROOT / 'camera-runtime').glob('*.py')) + [ROOT / name for name in ('facelock-detect', 'facelock-feedback', 'facelock-enroll', 'facelock-auth')]:
             ast.parse(path.read_text(), filename=str(path))
         for path in list(ROOT.glob('*.sh')) + list((ROOT / 'ci').glob('*.sh')) + [ROOT / 'PKGBUILD', ROOT / 'facelock.install', ROOT / 'facelock-run', ROOT / 'facelock-pam-enable', ROOT / 'debian/postinst']:
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
-        self.assertEqual(tag, 'v0.3.0-1')
+        self.assertEqual(tag, 'v0.3.0-2')
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
@@ -59,9 +59,12 @@ class PackagingTests(unittest.TestCase):
             temp = Path(directory)
             (temp / 'facelock').symlink_to(ROOT, target_is_directory=True)
             payload = temp / 'payload'
+            runtime = temp / 'camera-runtime'
+            runtime.mkdir()
+            (runtime / 'manifest.json').write_text('{}')
             subprocess.run(['bash', '-ec', 'source "$FACELOCK_RECIPE"; package'], cwd=temp,
                            env={**os.environ, 'FACELOCK_RECIPE': str(ROOT / 'PKGBUILD'),
-                                'pkgdir': str(payload)}, check=True)
+                                'pkgdir': str(payload), 'srcdir': str(temp)}, check=True)
             data = io.BytesIO()
             def ownership(info):
                 info.uid = info.gid = 0

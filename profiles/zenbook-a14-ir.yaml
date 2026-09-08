@@ -45,7 +45,8 @@ pam:
   user: ''  # set to your account; empty allows any explicitly enrolled account
   verify_timeout_sec: 20
 runtime:
+  require_camss: true
   # Empty uses system libcamera. For a patched build use a root-owned snapshot.
   # Its .so libraries and matching Python binding must have the same ABI.
-  stack: ''
-  tuning: /usr/share/facelock/tuning
+  stack: /usr/lib/facelock/camera
+  tuning: /usr/lib/facelock/camera/tuning

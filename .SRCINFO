@@ -1,32 +1,46 @@
 pkgbase = facelock
 	pkgdesc = Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops
 	pkgver = 0.3.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/sppidy/facelock
-	arch = any
+	install = facelock.install
+	arch = aarch64
 	license = MIT
 	makedepends = git
 	makedepends = tar
+	makedepends = meson
+	makedepends = ninja
+	makedepends = pkgconf
+	makedepends = python-jinja
+	makedepends = python-yaml
+	makedepends = python-ply
+	makedepends = pybind11
+	makedepends = patchelf
+	makedepends = openssl
 	depends = python
+	depends = python>=3.14
+	depends = python<3.15
 	depends = python-opencv
 	depends = python-numpy
 	depends = python-yaml
 	depends = gstreamer
 	depends = gst-plugins-base
 	depends = v4l-utils
-	depends = libcamera
 	depends = pam
-	optdepends = python-libcamera: concurrent dual-sensor capture
+	depends = libyaml
+	depends = gnutls
+	depends = libevent
+	depends = systemd-libs
+	optdepends = python-libcamera: optional system runtime for other camera profiles
 	optdepends = gst-plugin-libcamera: libcamera cameras over GStreamer
 	optdepends = gst-plugins-good: UVC webcams over GStreamer (v4l2src)
 	optdepends = hyprlock: face unlock on the Hyprland lock screen
 	optdepends = gtk4: graphical enrollment wizard
 	optdepends = python-gobject: graphical enrollment wizard
 	optdepends = polkit: authorize enrollment from the desktop
-	backup = etc/facelock/config.yaml
 	options = !debug
-	source = git+https://github.com/sppidy/facelock.git#tag=v0.3.0-1
+	backup = etc/facelock/config.yaml
+	source = git+https://github.com/sppidy/facelock.git#tag=v0.3.0-2
 	sha256sums = SKIP
-	install = facelock.install
 
 pkgname = facelock

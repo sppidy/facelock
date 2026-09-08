@@ -74,30 +74,46 @@ accordingly. Add `--pam` only when you want the installer to enable PAM.
 
 ## A14 camera runtime
 
-The A14 needs additional kernel and libcamera patches for concurrent RGB/IR
-capture. The patches and application instructions are included in
-[`patches/`](patches/README.md).
+The A14 requires the [CAMSS kernel patch](patches/README.md). Install a kernel
+with that patch and reboot before using Facelock. The patch now exposes a
+read-only `facelock_capability` attribute on the CAMSS device. A14 profiles
+require `x1p-normal-world-v1`; missing capability stops the attempt before
+camera access. Older kernels carrying the mapping fix alone need the marker
+addition too. A kernel version string is not accepted as proof.
 
-The [imaging backport](patches/README.md#cpu-imaging-backport) provides the CPU pipeline
-fixes needed by the included OV02C10 tuning. The A14 profile captures the full
-1920×1080 view and resizes it to 640×360; requesting a smaller image directly
-from this SoftISP build crops the view instead.
+The `.deb` and Arch packages embed a private patched libcamera runtime at
+`/usr/lib/facelock/camera`. The A14 profiles select it automatically. Libraries,
+Python bindings, the simple IPA, proxy worker, routing configuration and tuning
+are built and shipped together. System libcamera is not patched or replaced,
+and no global loader configuration or GStreamer plugin is installed.
 
-Copy a matching build into a fresh, root-owned directory:
+Each distribution builds its own runtime against its Python and system
+libraries. Arch packages are now `aarch64`, Debian packages `arm64`. A Python
+ABI change requires rebuilding/reinstalling the matching Facelock package;
+the launcher rejects a mismatched binding. The runtime is dependency-isolated,
+not a container security sandbox; it still uses the host kernel and devices.
 
-```sh
-sudo python3 tools/stage_camera_runtime.py \
-  /path/to/camera-build /opt/facelock/camera-stack
+The build pins upstream commit
+`597a5bb97bf9257790edf21020c679aa666ba307` (0.7.1 plus upstream fixes), applies
+the two bundled libcamera patches, removes build-directory RPATHs, and verifies
+that the Python binding loads with private libcamera libraries. A manifest
+records source, patch hashes, build options, Python ABI and architecture.
+Releases include the corresponding patched libcamera source and license files.
+
+An existing `/etc/facelock/config.yaml` is preserved on upgrade. To migrate
+from a manually staged runtime, set:
+
+```yaml
+runtime:
+  require_camss: true
+  stack: /usr/lib/facelock/camera
+  tuning: /usr/lib/facelock/camera/tuning
 ```
 
-Set `runtime.stack: /opt/facelock/camera-stack` in the configuration. The tool
-copies the libraries, IPA, proxy worker and Python binding. The binding must
-match your system Python version. Root authentication rejects runtime paths
-that an unprivileged user can modify, including builds in a home directory.
-
-The A14 profiles already set `runtime.tuning: /usr/share/facelock/tuning`.
-They use the flash illuminator; select torch mode only on hardware where it
-works.
+Then run diagnostics and explicitly enroll again, because changing the camera
+runtime changes the enrollment signature. Keep the previous package and config
+for rollback. Development snapshots through `runtime.stack` remain supported;
+root authentication requires trusted root-owned paths throughout.
 
 ## Upgrading from 0.1
 

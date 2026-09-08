@@ -12,8 +12,14 @@ def stage(source, target):
         raise FileExistsError(f"snapshot already exists: {target}")
     files = []
     for relative in ("build/src/libcamera", "build/src/libcamera/base"):
-        files += [p for p in (source / relative).glob("*.so*") if p.is_file()]
-    files += [p for p in (source / "build/src/ipa/simple").glob("*.so*") if p.is_file()]
+        libraries = [p for p in (source / relative).glob("*.so*") if p.is_file()]
+        if not libraries:
+            raise FileNotFoundError(f"missing libraries: {source / relative}")
+        files += libraries
+    ipa = [p for p in (source / "build/src/ipa/simple").glob("*.so*") if p.is_file()]
+    if not ipa:
+        raise FileNotFoundError("missing simple IPA module")
+    files += ipa
     worker = source / "build/src/libcamera/proxy/worker/soft_ipa_proxy"
     files += [worker]
     binding = source / "build/src/py/libcamera" / ("_libcamera" + sysconfig.get_config_var("EXT_SUFFIX"))

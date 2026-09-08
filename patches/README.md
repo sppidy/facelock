@@ -1,8 +1,8 @@
 # A14 camera patches
 
 These patches provide concurrent RGB/IR capture and CPU image processing
-for the Zenbook A14. Apply the CAMSS patch to the kernel source and the
-other two patches to libcamera; they are not applied to Facelock itself.
+for the Zenbook A14. Apply the CAMSS patch to the kernel source and reboot. The package build applies the other two patches to its private
+libcamera copy; no system libcamera reinstall is needed.
 
 | Patch | Target | Purpose |
 | --- | --- | --- |
@@ -13,8 +13,9 @@ other two patches to libcamera; they are not applied to Facelock itself.
 ## Routing
 
 The CAMSS patch records its kernel base commit in the header. The libcamera
-patches target the 0.7.1 camera stack; compatibility with other versions
-needs checking. From each target source tree, check the relevant patch
+patches target upstream commit `597a5bb97bf9257790edf21020c679aa666ba307`
+(0.7.1 plus upstream fixes), not the pristine v0.7.1 tag. The automated build
+pins this commit and refuses patch failures. From each target source tree, check the relevant patch
 before applying it:
 
 ```sh
@@ -37,7 +38,7 @@ for the staging command.
 
 ## CPU imaging backport
 
-`libcamera-0.7.1-imaging.patch` targets libcamera 0.7.1 with the routing patch
+`libcamera-0.7.1-imaging.patch` targets the pinned commit above with the routing patch
 and CPU SoftISP. It needs adaptation for newer libcamera versions.
 Build libcamera and the simple IPA together: the statistics shared-memory
 layout changes. The Python binding and proxy worker must match this libcamera
@@ -82,3 +83,18 @@ Use [stage_camera_runtime.py](../tools/stage_camera_runtime.py) to copy the resu
 including `build/src/libcamera/proxy/worker/soft_ipa_proxy`. Omitting that
 executable can make a relocated runtime silently disable debayering and
 negotiate raw Bayer even for a viewfinder request.
+
+## Mandatory running-kernel capability
+
+The CAMSS patch includes a read-only device attribute. After booting the
+patched kernel, check:
+
+```sh
+cat /sys/bus/platform/drivers/qcom-camss/*/facelock_capability
+```
+
+The X1P device must report `x1p-normal-world-v1`. Facelock does not accept a
+configuration-only declaration or a kernel-name match. If you previously
+applied the mapping fix, port the final `facelock_capability` hunk to that
+kernel and rebuild; do not reapply the mapping hunks blindly. Other SoCs
+report `unsupported`. USB profiles do not require this A14-specific patch.
