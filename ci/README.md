@@ -5,6 +5,8 @@ creates a stable release. The comparison covers the entire push, not just
 its last commit. Net-reverted changes do not count. Other branch pushes,
 scheduled runs and manual branch runs create unique nightly prereleases.
 Tag pushes do not trigger this workflow; manual runs targeting tags are skipped.
+If a stable build fails before publishing its tag, later pushes to `main` retry
+that same stable version until it publishes successfully.
 
 Stable builds produce `facelock`; nightly builds produce `facelock-nightly`.
 The package identities conflict because they install the same commands and

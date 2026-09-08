@@ -19,6 +19,13 @@ def stable_push(event_name, ref, before, after):
     return changed.strip() == b'PKGBUILD'
 
 
+def stable_release(event_name, ref, before, after, tag):
+    if stable_push(event_name, ref, before, after):
+        return True
+    return (event_name == 'push' and ref == 'refs/heads/main'
+            and tag not in subprocess.check_output(['git', 'tag', '--list', tag], text=True).splitlines())
+
+
 def release_history(stable, sha):
     prefix = 'v' if stable else 'nightly-'
     tags = subprocess.check_output(
@@ -37,16 +44,17 @@ def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     sha = os.environ['GITHUB_SHA']
     assert subprocess.check_output(['git', 'rev-parse', 'HEAD']).decode().strip() == sha
-    stable = stable_push(os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
-                         event.get('before'), sha)
     recipe = Path('PKGBUILD').read_text()
     version = re.search(r'^pkgver=([0-9][0-9a-zA-Z.]*)$', recipe, re.M).group(1)
     release = re.search(r'^pkgrel=([0-9]+)$', recipe, re.M).group(1)
+    stable_tag = f'v{version}-{release}'
+    stable = stable_release(os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
+                            event.get('before'), sha, stable_tag)
     run = os.environ['GITHUB_RUN_ID']
     attempt = os.environ['GITHUB_RUN_ATTEMPT']
     if not stable:
         version += f'.r{run}.a{attempt}.g{sha[:12]}'
-    tag = f'v{version}-{release}' if stable else f'nightly-{version}-{release}'
+    tag = stable_tag if stable else f'nightly-{version}-{release}'
     package_name = 'facelock' if stable else 'facelock-nightly'
     previous_tag, changes = release_history(stable, sha)
     dist = Path('dist')

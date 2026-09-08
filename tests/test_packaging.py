@@ -7,7 +7,7 @@ import tempfile
 import tarfile
 import unittest
 
-from ci.prepare import release_history, stable_push
+from ci.prepare import release_history, stable_push, stable_release
 from ci.inspect import inspect_payload
 from ci.publish import release_assets, release_notes
 
@@ -43,6 +43,12 @@ class PackagingTests(unittest.TestCase):
                 self.assertTrue(stable_push('push', 'refs/heads/main', '0' * 40, third))
                 reverted = commit('PKGBUILD', 'one')
                 self.assertFalse(stable_push('push', 'refs/heads/main', first, reverted))
+                self.assertFalse(stable_release('push', 'refs/heads/main', second, third,
+                                                'v0.1.0-1'))
+                self.assertTrue(stable_release('push', 'refs/heads/main', second, third,
+                                               'v0.2.0-1'))
+                self.assertFalse(stable_release('schedule', 'refs/heads/main', second, third,
+                                                'v0.2.0-1'))
                 history_previous, changes = release_history(True, third)
                 self.assertEqual(history_previous, 'v0.1.0-1')
                 self.assertEqual([change['commit'] for change in changes], [second, third])

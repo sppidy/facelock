@@ -117,9 +117,9 @@ def main():
                                        'Package', 'Version', 'Architecture'], text=True)
     assert metadata == f'Package: {package_name}\nVersion: {version}\nArchitecture: arm64\n', metadata
     deb_provides = subprocess.check_output(
-        ['dpkg-deb', '-f', str(debs[0]), '${Provides}'], text=True)
+        ['dpkg-deb', '-f', str(debs[0]), 'Provides'], text=True).strip()
     deb_conflicts = subprocess.check_output(
-        ['dpkg-deb', '-f', str(debs[0]), '${Conflicts}'], text=True)
+        ['dpkg-deb', '-f', str(debs[0]), 'Conflicts'], text=True).strip()
     if package_name == 'facelock-nightly':
         assert deb_provides == 'facelock' and deb_conflicts == 'facelock'
     else:
