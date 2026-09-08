@@ -7,15 +7,24 @@ import tempfile
 import tarfile
 import unittest
 
-from ci.prepare import release_history, stable_push, stable_release
+from ci.prepare import changelog_for, release_history, skip_build, stable_release
 from ci.inspect import inspect_payload
 from ci.publish import release_assets, release_notes
+from ci.prune_nightlies import stale_nightlies
+from ci.repo_site import channel_releases
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
     def test_classification(self):
+        main = 'refs/heads/main'
+        self.assertTrue(stable_release('workflow_dispatch', {'inputs': {'channel': 'stable'}}, main))
+        self.assertFalse(stable_release('workflow_dispatch', {'inputs': {'channel': 'nightly'}}, main))
+        self.assertFalse(stable_release('push', {'inputs': {'channel': 'stable'}}, main))
+        with self.assertRaisesRegex(ValueError, 'must target'):
+            stable_release('workflow_dispatch', {'inputs': {'channel': 'stable'}},
+                           'refs/heads/topic')
         with tempfile.TemporaryDirectory() as directory:
             def git(*args):
                 return subprocess.check_output(['git', '-C', directory, *args], text=True).strip()
@@ -34,21 +43,10 @@ class PackagingTests(unittest.TestCase):
             previous = Path.cwd()
             try:
                 os.chdir(directory)
-                self.assertTrue(stable_push('push', 'refs/heads/main', first, third))
-                self.assertFalse(stable_push('push', 'refs/heads/main', second, third))
-                for event, ref in [('schedule', 'refs/heads/main'),
-                                   ('workflow_dispatch', 'refs/heads/main'),
-                                   ('push', 'refs/tags/v1'), ('push', 'refs/heads/topic')]:
-                    self.assertFalse(stable_push(event, ref, first, third))
-                self.assertTrue(stable_push('push', 'refs/heads/main', '0' * 40, third))
-                reverted = commit('PKGBUILD', 'one')
-                self.assertFalse(stable_push('push', 'refs/heads/main', first, reverted))
-                self.assertFalse(stable_release('push', 'refs/heads/main', second, third,
-                                                'v0.1.0-1'))
-                self.assertTrue(stable_release('push', 'refs/heads/main', second, third,
-                                               'v0.2.0-1'))
-                self.assertFalse(stable_release('schedule', 'refs/heads/main', second, third,
-                                                'v0.2.0-1'))
+                self.assertTrue(skip_build('schedule', False, second))
+                self.assertFalse(skip_build('schedule', False, third))
+                self.assertFalse(skip_build('push', False, second))
+                self.assertFalse(skip_build('schedule', True, second))
                 history_previous, changes = release_history(True, third)
                 self.assertEqual(history_previous, 'v0.1.0-1')
                 self.assertEqual([change['commit'] for change in changes], [second, third])
@@ -64,11 +62,12 @@ class PackagingTests(unittest.TestCase):
         for path in list(ROOT.glob('*.sh')) + list((ROOT / 'ci').glob('*.sh')) + [ROOT / 'PKGBUILD', ROOT / 'facelock.install', ROOT / 'facelock-run', ROOT / 'facelock-pam-enable', ROOT / 'debian/postinst']:
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
-        self.assertEqual(tag, 'v0.3.0-2')
+        self.assertEqual(tag, 'v0.3.0-3')
         nightly = subprocess.check_output(
-            ['bash', '-c', 'source PKGBUILD; printf "%s|%s|%s" "$pkgname" "${provides[*]}" "${conflicts[*]}"'],
+            ['bash', '-c', 'source PKGBUILD; printf "%s|%s|%s|%s" "$pkgname" "${provides[*]}" "${conflicts[*]}" "${replaces[*]}"'],
             cwd=ROOT, text=True, env={**os.environ, 'FACELOCK_PACKAGE_NAME': 'facelock-nightly'})
-        self.assertEqual(nightly, 'facelock-nightly|facelock|facelock')
+        self.assertEqual(nightly, 'facelock-nightly|facelock|facelock|facelock')
+        self.assertIn('Three-sample', changelog_for('0.3.0', ROOT / 'CHANGELOG.md'))
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
@@ -98,6 +97,7 @@ class PackagingTests(unittest.TestCase):
     def test_release_notes_and_minimal_assets(self):
         metadata = {'repository': 'owner/repo', 'previous_tag': 'v1.0.0-1',
                     'commit': 'b' * 40, 'run_url': 'https://example.test/build',
+                    'changelog': '### Fixed\n\n- Camera startup.',
                     'changes': [{'commit': 'a' * 40, 'subject': 'fix: Repair camera startup'}]}
         notes = release_notes(metadata)
         self.assertIn('Changes since `v1.0.0-1`', notes)
@@ -110,6 +110,20 @@ class PackagingTests(unittest.TestCase):
             for name in expected | {'provenance.json', 'facelock.db'}:
                 (dist / name).touch()
             self.assertEqual({path.name for path in release_assets(dist)}, expected)
+
+    def test_repository_channels_and_nightly_retention(self):
+        def release(tag, prerelease, published):
+            return {'tag_name': tag, 'prerelease': prerelease, 'draft': False,
+                    'published_at': published,
+                    'assets': [{'name': ('facelock-nightly-' if prerelease else 'facelock-')
+                                         + tag + '-aarch64.pkg.tar.zst'}]}
+        releases = [release('nightly-new', True, '2026-09-08T02:00:00Z'),
+                    release('v1.0.0-1', False, '2026-09-08T01:00:00Z'),
+                    release('nightly-old', True, '2026-09-07T02:00:00Z')]
+        selected = channel_releases(releases)
+        self.assertEqual(selected['stable']['tag_name'], 'v1.0.0-1')
+        self.assertEqual(selected['nightly']['tag_name'], 'nightly-new')
+        self.assertEqual(stale_nightlies(releases, keep=1), ['nightly-old'])
 
 
 if __name__ == '__main__':

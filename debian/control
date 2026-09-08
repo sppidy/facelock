@@ -10,6 +10,7 @@ Rules-Requires-Root: no
 Package: facelock
 Architecture: arm64
 Conflicts: facelock-nightly
+Replaces: facelock-nightly
 Depends: ${misc:Depends}, ${shlibs:Depends}, ${python3:Depends}, ${facelock:Python}, python3, python3-opencv, python3-numpy,
  python3-yaml, gstreamer1.0-tools, gstreamer1.0-plugins-base,
  gstreamer1.0-plugins-good, v4l-utils, libcamera-tools

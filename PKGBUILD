@@ -5,7 +5,7 @@ _giturl="https://github.com/sppidy/facelock.git"
 pkgname=${FACELOCK_PACKAGE_NAME:-facelock}
 _source_dir=facelock
 pkgver=0.3.0
-pkgrel=2
+pkgrel=3
 _gittag="v${pkgver}-${pkgrel}"
 pkgdesc="Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops"
 arch=('aarch64')
@@ -26,8 +26,10 @@ backup=('etc/facelock/config.yaml')
 if [[ $pkgname == facelock-nightly ]]; then
   provides=(facelock)
   conflicts=(facelock)
+  replaces=(facelock)
 else
   conflicts=(facelock-nightly)
+  replaces=(facelock-nightly)
 fi
 options=('!debug') # Keep private runtime debug symbols out of a separate package.
 if [[ -n ${FACELOCK_SOURCE_ARCHIVE:-} ]]; then
@@ -74,6 +76,7 @@ package() {
   install -Dm644 tuning/simple/*.yaml -t "$pkgdir/usr/share/facelock/tuning/simple/"
   install -Dm644 config.yaml "$pkgdir/usr/share/doc/facelock/config.example.yaml"
   install -Dm644 README.md "$pkgdir/usr/share/doc/facelock/README.md"
+  install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/facelock/CHANGELOG.md"
   install -Dm644 99-facelock-ir-led.rules \
     "$pkgdir/usr/lib/udev/rules.d/99-facelock-ir-led.rules"
   install -Dm644 config.yaml "$pkgdir/etc/facelock/config.yaml"

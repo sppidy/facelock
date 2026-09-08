@@ -43,6 +43,7 @@ override_dh_auto_install:
 	install -Dm644 tuning/simple/*.yaml -t $(DESTDIR)/usr/share/facelock/tuning/simple/
 	install -Dm644 config.yaml $(DESTDIR)/usr/share/doc/facelock/config.example.yaml
 	install -Dm644 README.md $(DESTDIR)/usr/share/doc/facelock/README.md
+	install -Dm644 CHANGELOG.md $(DESTDIR)/usr/share/doc/facelock/CHANGELOG.md
 	install -Dm644 99-facelock-ir-led.rules $(DESTDIR)/usr/lib/udev/rules.d/99-facelock-ir-led.rules
 	install -Dm644 config.yaml $(DESTDIR)/etc/facelock/config.yaml
 	install -dm700 $(DESTDIR)/var/lib/facelock

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+install -m644 /checkout/ci/debian.sources /etc/apt/sources.list.d/debian.sources
 apt-get update
 apt-get install -y --no-install-recommends makepkg pacman-package-manager \
   build-essential fakeroot debhelper devscripts python3 git zstd ca-certificates libarchive-tools dh-python meson ninja-build pkg-config \
@@ -14,6 +15,14 @@ cp /out/facelock-source.tar /out/provenance.json /build/
 cp /checkout/ci/build-user.sh /build/
 chown builder:builder /build/*
 runuser -u builder -- bash /build/build-user.sh
+package_name=$(python3 -c 'import json; print(json.load(open("/build/provenance.json"))["package_name"])')
+pam_before=$(find /etc/pam.d -type f -exec sha256sum {} + | sort | sha256sum)
+dpkg --force-depends -i /build/*.deb
+test "$(dpkg-query -W -f='${binary:Package}' "$package_name")" = "$package_name"
+test -x /usr/bin/facelock-run
+test "$pam_before" = "$(find /etc/pam.d -type f -exec sha256sum {} + | sort | sha256sum)"
+dpkg --force-depends -r "$package_name"
+test ! -e /usr/bin/facelock-run
 cp /build/*.deb /out/
 set -x
 repo_work=/repo

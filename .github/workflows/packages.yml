@@ -2,49 +2,76 @@ name: packages
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
+  pull_request:
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Package channel to publish
+        type: choice
+        required: true
+        default: nightly
+        options:
+          - nightly
+          - stable
 
 permissions:
   contents: read
 
 jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          python3 -m pip install numpy==2.5.3 opencv-python-headless==5.0.0.93 PyYAML==6.0.3
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-gi gir1.2-gtk-4.0 xvfb
+      - name: Offline tests
+        run: xvfb-run -a python3 -B -m unittest discover -s tests -v
+
   build:
-    if: github.ref_type == 'branch'
+    if: github.event_name != 'pull_request'
+    needs: test
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
+    concurrency:
+      group: package-build-${{ github.ref }}-${{ inputs.channel || 'nightly' }}
+      cancel-in-progress: ${{ github.event_name == 'push' }}
     outputs:
       tag: ${{ steps.prepare.outputs.tag }}
       stable: ${{ steps.prepare.outputs.stable }}
+      skip: ${{ steps.prepare.outputs.skip }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install test dependencies
-        run: |
-          python3 -m pip install numpy opencv-python-headless PyYAML
-          sudo apt-get update -qq
-          sudo apt-get install -y python3-gi gir1.2-gtk-4.0 xvfb
-      - name: Offline tests
-        run: xvfb-run -a python3 -B -m unittest discover -s tests -v
       - name: Classify and archive exact checkout
         id: prepare
         run: python3 ci/prepare.py
       - name: Build embedded runtime and package on Arch Linux ARM
+        if: steps.prepare.outputs.skip != 'true'
         run: |
           bash ci/arch-rootfs.sh
           docker run --rm -v "$PWD:/checkout:ro" -v "$PWD/dist:/out" \
             facelock-arch-builder bash /checkout/ci/build-arch.sh
       - name: Build Debian package and inspect both native packages
+        if: steps.prepare.outputs.skip != 'true'
         run: |
-          docker pull debian:trixie
-          docker image inspect debian:trixie --format '{{index .RepoDigests 0}}' > dist/builder-image.txt
+          debian_image=docker.io/library/debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1
+          docker pull "$debian_image"
+          printf '%s\n' "$debian_image" > dist/builder-image.txt
           docker run --rm -v "$PWD:/checkout:ro" -v "$PWD/dist:/out" \
-            debian:trixie bash /checkout/ci/build.sh
+            "$debian_image" bash /checkout/ci/build.sh
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: steps.prepare.outputs.skip != 'true'
         with:
           name: packages-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/*
@@ -53,6 +80,7 @@ jobs:
 
   publish:
     needs: build
+    if: needs.build.result == 'success' && needs.build.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -81,10 +109,22 @@ jobs:
           RELEASE_STABLE: ${{ needs.build.outputs.stable }}
         run: python3 ci/publish.py
       - name: Assemble pacman repo site
-        run: python3 ci/repo_site.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y pacman-package-manager libarchive-tools zstd
+          python3 ci/repo_site.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Retain five nightly prereleases
+        if: needs.build.outputs.stable != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 ci/prune_nightlies.py

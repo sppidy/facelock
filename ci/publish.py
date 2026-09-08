@@ -16,7 +16,7 @@ def release_notes(metadata):
     previous = metadata.get('previous_tag')
     heading = f"## Changes since `{previous}`" if previous else '## Changes'
     changes = metadata.get('changes', [])
-    lines = [heading, '']
+    lines = ['## Highlights', '', metadata['changelog'], '', heading, '']
     if changes:
         lines.extend(f"- [`{change['commit'][:7]}`]({repo_url}/commit/{change['commit']}) {change['subject']}"
                      for change in changes)

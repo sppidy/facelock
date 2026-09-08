@@ -7,23 +7,19 @@ import re
 import subprocess
 
 
-def stable_push(event_name, ref, before, after):
-    if event_name != 'push' or ref != 'refs/heads/main':
+def stable_release(event_name, event, ref):
+    requested = (event_name == 'workflow_dispatch'
+                 and event.get('inputs', {}).get('channel') == 'stable')
+    if requested and ref != 'refs/heads/main':
+        raise ValueError('stable releases must target refs/heads/main')
+    return requested
+
+
+def skip_build(event_name, stable, sha):
+    if event_name != 'schedule' or stable:
         return False
-    # A new branch has no previous tree; treat all initial files as additions.
-    if not before or set(before) == {'0'}:
-        before = subprocess.check_output(
-            ['git', 'hash-object', '-t', 'tree', '--stdin'], input=b'').decode().strip()
-    changed = subprocess.check_output(
-        ['git', 'diff', '--name-only', '--no-renames', before, after, '--', 'PKGBUILD'])
-    return changed.strip() == b'PKGBUILD'
-
-
-def stable_release(event_name, ref, before, after, tag):
-    if stable_push(event_name, ref, before, after):
-        return True
-    return (event_name == 'push' and ref == 'refs/heads/main'
-            and tag not in subprocess.check_output(['git', 'tag', '--list', tag], text=True).splitlines())
+    return bool(subprocess.check_output(
+        ['git', 'tag', '--points-at', sha, '--list', 'nightly-*'], text=True).strip())
 
 
 def release_history(stable, sha):
@@ -40,6 +36,14 @@ def release_history(stable, sha):
     return previous, changes
 
 
+def changelog_for(version, path=Path('CHANGELOG.md')):
+    match = re.search(rf'^## \[{re.escape(version)}\]\s*\n(.*?)(?=^## \[|\Z)',
+                      path.read_text(), re.M | re.S)
+    if not match:
+        raise ValueError(f'CHANGELOG.md has no section for {version}')
+    return match.group(1).strip()
+
+
 def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     sha = os.environ['GITHUB_SHA']
@@ -48,8 +52,9 @@ def main():
     version = re.search(r'^pkgver=([0-9][0-9a-zA-Z.]*)$', recipe, re.M).group(1)
     release = re.search(r'^pkgrel=([0-9]+)$', recipe, re.M).group(1)
     stable_tag = f'v{version}-{release}'
-    stable = stable_release(os.environ['GITHUB_EVENT_NAME'], os.environ['GITHUB_REF'],
-                            event.get('before'), sha, stable_tag)
+    event_name = os.environ['GITHUB_EVENT_NAME']
+    stable = stable_release(event_name, event, os.environ['GITHUB_REF'])
+    skip = skip_build(event_name, stable, sha)
     run = os.environ['GITHUB_RUN_ID']
     attempt = os.environ['GITHUB_RUN_ATTEMPT']
     if not stable:
@@ -57,6 +62,11 @@ def main():
     tag = stable_tag if stable else f'nightly-{version}-{release}'
     package_name = 'facelock' if stable else 'facelock-nightly'
     previous_tag, changes = release_history(stable, sha)
+    changelog = changelog_for(re.search(r'^pkgver=([0-9][0-9a-zA-Z.]*)$', recipe, re.M).group(1))
+    if skip:
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write(f'tag={tag}\nstable={str(stable).lower()}\nskip=true\n')
+        return
     dist = Path('dist')
     dist.mkdir()  # Refuse stale output from another build.
     archive = dist / 'facelock-source.tar'
@@ -64,6 +74,7 @@ def main():
                     '-o', str(archive), sha], check=True)
     metadata = dict(commit=sha, version=version, pkgrel=release, tag=tag, stable=stable,
                     package_name=package_name, previous_tag=previous_tag, changes=changes,
+                    changelog=changelog,
                     source_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
                     repository=os.environ['GITHUB_REPOSITORY'], run_id=run, attempt=attempt,
                     run_url=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run}",
@@ -71,7 +82,7 @@ def main():
                         ['git', 'show', '-s', '--format=%ct', sha]).decode().strip())
     (dist / 'provenance.json').write_text(json.dumps(metadata, indent=2) + '\n')
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-        output.write(f'tag={tag}\nstable={str(stable).lower()}\n')
+        output.write(f'tag={tag}\nstable={str(stable).lower()}\nskip=false\n')
 
 
 if __name__ == '__main__':

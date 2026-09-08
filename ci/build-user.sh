@@ -13,7 +13,8 @@ tar -xf facelock-source.tar -C deb
 cd /build/deb/facelock
 if [[ ${metadata[4]} == facelock-nightly ]]; then
   sed -i -e 's/^Package: facelock$/Package: facelock-nightly/' \
-    -e 's/^Conflicts: facelock-nightly$/Provides: facelock\nConflicts: facelock\nReplaces: facelock/' debian/control
+    -e 's/^Conflicts: facelock-nightly$/Provides: facelock\nConflicts: facelock/' \
+    -e 's/^Replaces: facelock-nightly$/Replaces: facelock/' debian/control
   cp debian/postinst debian/facelock-nightly.postinst
 fi
 changes=$(python3 -c 'import json; m=json.load(open("/build/provenance.json")); print("; ".join(c["subject"] for c in m["changes"]) or "No source changes since the previous release.")')

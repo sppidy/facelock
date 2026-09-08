@@ -301,3 +301,17 @@ python3 -m venv .venv
 The tests cover capture timing, pixel conversion, matching policy, enrollment
 integrity, runtime isolation and packaging. They run without camera hardware.
 See [ci/README.md](ci/README.md) for package builds and releases.
+
+Stable and nightly Arch repositories are independent:
+
+```ini
+[facelock-stable]
+Server = https://facelock-repo.sppidy.in/stable/$arch
+
+[facelock-nightly]
+Server = https://facelock-repo.sppidy.in/nightly/$arch
+```
+
+Enable one channel at a time. Stable packages install as `facelock`; nightly
+packages install as `facelock-nightly`. Switching channels replaces the other
+variant while preserving `/etc/facelock/config.yaml`.

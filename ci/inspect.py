@@ -43,7 +43,8 @@ def inspect_payload(archive, deb=False, elf_machine=183):
             or (name.startswith('usr/lib/facelock/') and name.endswith(('.py', '/pam_check.sh')))
             or (name.startswith(('usr/share/facelock/profiles/', 'usr/share/facelock/tuning/simple/')) and name.endswith('.yaml'))
             or (name.startswith('usr/share/doc/facelock/') and Path(name).name in {
-                'README.md', 'README.md.gz', 'config.example.yaml', 'changelog.Debian.gz', 'changelog.gz'})
+                'README.md', 'README.md.gz', 'CHANGELOG.md', 'CHANGELOG.md.gz',
+                'config.example.yaml', 'changelog.Debian.gz', 'changelog.gz'})
         )
         assert allowed, f'Unexpected payload: {name}'
         executable = name.startswith('usr/bin/') or name in {
@@ -120,11 +121,14 @@ def main():
         ['dpkg-deb', '-f', str(debs[0]), 'Provides'], text=True).strip()
     deb_conflicts = subprocess.check_output(
         ['dpkg-deb', '-f', str(debs[0]), 'Conflicts'], text=True).strip()
+    deb_replaces = subprocess.check_output(
+        ['dpkg-deb', '-f', str(debs[0]), 'Replaces'], text=True).strip()
     if package_name == 'facelock-nightly':
-        assert deb_provides == 'facelock' and deb_conflicts == 'facelock'
+        assert deb_provides == deb_conflicts == deb_replaces == 'facelock'
     else:
         assert package_name == 'facelock'
-        assert not deb_provides and deb_conflicts == 'facelock-nightly'
+        assert not deb_provides
+        assert deb_conflicts == deb_replaces == 'facelock-nightly'
     payload = subprocess.check_output(['dpkg-deb', '--fsys-tarfile', str(debs[0])])
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
         debfiles = inspect_payload(archive, deb=True)
@@ -141,8 +145,9 @@ def main():
     for field in [f'pkgname = {package_name}', f'pkgver = {version}', 'arch = aarch64',
                   'backup = etc/facelock/config.yaml', 'depend = python']:
         assert field in info.splitlines(), field
-    relations = (['provides = facelock', 'conflict = facelock']
-                 if package_name == 'facelock-nightly' else ['conflict = facelock-nightly'])
+    relations = (['provides = facelock', 'conflict = facelock', 'replaces = facelock']
+                 if package_name == 'facelock-nightly'
+                 else ['conflict = facelock-nightly', 'replaces = facelock-nightly'])
     for relation in relations:
         assert relation in info.splitlines(), relation
     for name in debfiles.keys() & archfiles.keys():
