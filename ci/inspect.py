@@ -16,7 +16,7 @@ def inspect_payload(archive, deb=False):
         assert member.isdir() or member.isfile(), name
         if member.isdir():
             if name == 'var/lib/facelock':
-                assert member.mode == 0o770
+                assert member.mode == 0o700
             continue
         data = archive.extractfile(member).read()
         files[name] = data
@@ -27,14 +27,15 @@ def inspect_payload(archive, deb=False):
                      'usr/bin/facelock-pam-enable', 'etc/facelock/config.yaml',
                      'usr/lib/udev/rules.d/99-facelock-ir-led.rules'}
             or (name.startswith('usr/lib/facelock/') and name.endswith(('.py', '/pam_check.sh')))
-            or (name.startswith('usr/share/facelock/profiles/') and name.endswith('.yaml'))
+            or (name.startswith(('usr/share/facelock/profiles/', 'usr/share/facelock/tuning/simple/')) and name.endswith('.yaml'))
             or (name.startswith('usr/share/doc/facelock/') and Path(name).name in {
                 'README.md', 'README.md.gz', 'config.example.yaml', 'changelog.Debian.gz'})
         )
         assert allowed, f'Unexpected payload: {name}'
         executable = name.startswith('usr/bin/') or name in {
             'usr/lib/facelock/setup_models.py', 'usr/lib/facelock/enroll.py',
-            'usr/lib/facelock/verify.py', 'usr/lib/facelock/pam_check.sh'}
+            'usr/lib/facelock/verify.py', 'usr/lib/facelock/pam_check.sh',
+            'usr/lib/facelock/runner.py', 'usr/lib/facelock/diagnose.py'}
         assert member.mode == (0o755 if executable else 0o644), (name, oct(member.mode))
         assert member.uid == member.gid == 0, name
         if name.endswith('.py') or name == 'usr/bin/facelock-detect':
@@ -46,7 +47,9 @@ def inspect_payload(archive, deb=False):
                      'etc/facelock/config.yaml']:
         assert required in files, required
     assert b'/usr/bin/python3' in files['usr/bin/facelock-run']
-    assert b'runpy' in files['usr/bin/facelock-run']
+    assert b'runpy' in files['usr/lib/facelock/runner.py']
+    assert b'/usr/bin/env -i' in files['usr/bin/facelock-run']
+    assert b'--pam --quiet' in files['usr/lib/facelock/pam_check.sh']
     assert b'$LIBDIR/../../bin/facelock-run' in files['usr/lib/facelock/pam_check.sh']
     return files
 

@@ -9,11 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 PROFILE=""
-WIRE_PAM=1
+WIRE_PAM=0
 for arg in "$@"; do
   case "$arg" in
     --profile=*) PROFILE="${arg#--profile=}" ;;
     --no-pam) WIRE_PAM=0 ;;
+    --pam) WIRE_PAM=1 ;;
     *) echo "unknown arg: $arg"; exit 1 ;;
   esac
 done
@@ -29,14 +30,15 @@ sudo mkdir -p /usr/local/lib/facelock /usr/local/share/facelock \
 sudo rm -rf /usr/local/lib/facelock/facelock \
   /usr/local/lib/facelock/__pycache__
 sudo cp -r facelock /usr/local/lib/facelock/facelock
-sudo cp enroll.py verify.py setup_models.py pam_check.sh dual_test.py \
+sudo cp enroll.py verify.py runner.py diagnose.py setup_models.py pam_check.sh dual_test.py \
   ir_check.py /usr/local/lib/facelock/
 sudo sha256sum /usr/local/lib/facelock/verify.py \
   /usr/local/lib/facelock/facelock/dual_capture.py | head -4
 sudo cp facelock-run facelock-detect facelock-pam-enable /usr/local/bin/
 sudo chmod 755 /usr/local/bin/facelock-run /usr/local/bin/facelock-detect \
   /usr/local/bin/facelock-pam-enable
-sudo mkdir -p /usr/local/share/facelock/profiles
+sudo mkdir -p /usr/local/share/facelock/profiles /usr/share/facelock/tuning/simple
+sudo cp tuning/simple/*.yaml /usr/share/facelock/tuning/simple/
 sudo cp profiles/*.yaml /usr/local/share/facelock/profiles/
 if [ -n "$PROFILE" ]; then
   [ -f "profiles/$PROFILE.yaml" ] || { echo "no such profile: $PROFILE"; exit 1; }
@@ -49,15 +51,10 @@ elif [ ! -f /etc/facelock/config.yaml ]; then
 fi
 sudo chmod 755 /usr/local/lib/facelock/*.py \
   /usr/local/lib/facelock/pam_check.sh
-# store/log must be group-accessible: sudo runs PAM auth helpers as the
-# invoking user (uid 1000, zero caps), not as root
-sudo chgrp video /var/lib/facelock
-sudo chmod 770 /var/lib/facelock
-sudo touch /var/lib/facelock/pam.log /var/lib/facelock/env.log
-sudo chgrp video /var/lib/facelock/pam.log /var/lib/facelock/env.log
-sudo chmod 660 /var/lib/facelock/pam.log /var/lib/facelock/env.log
-sudo chgrp video /var/lib/facelock/*.npz 2>/dev/null || true
-sudo chmod 640 /var/lib/facelock/*.npz 2>/dev/null || true
+# Private storage; legacy .npz files remain unused until fresh enrollment.
+sudo chown root:root /var/lib/facelock
+sudo chmod 700 /var/lib/facelock
+sudo chmod 600 /var/lib/facelock/*.log /var/lib/facelock/*.jsonl 2>/dev/null || true
 
 echo '== 3/5 models =='
 sudo python setup_models.py
@@ -84,5 +81,5 @@ fi
 
 echo
 echo 'Next: sudo python /usr/local/lib/facelock/enroll.py --sensor both'
-echo 'Then: python /usr/local/lib/facelock/verify.py'
+echo 'Then: sudo facelock-run /usr/local/lib/facelock/verify.py'
 echo 'Test login/sudo from a SECOND session before logging out.'

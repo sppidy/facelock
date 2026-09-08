@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: CC0-1.0
+%YAML 1.1
+---
+version: 1
+algorithms:
+  - BlackLevel:
+      blackLevel: 4096
+  - Awb:
+  - Ccm:
+      ccms:
+        - ct: 3200
+          ccm: [ 1.84, -0.50, -0.34,
+                 -0.16,  1.32, -0.16,
+                 -0.02, -0.52,  1.54 ]
+        - ct: 6500
+          ccm: [ 1.66, -0.36, -0.30,
+                 -0.12,  1.22, -0.10,
+                 -0.02, -0.40,  1.42 ]
+  - Adjust:
+  - Agc:
+      # Supported by tools/camera-patches/libcamera-0.7.1-imaging.patch.
+      # Lower the histogram target to limit gain and highlight clipping.
+      target: 1.8
+...

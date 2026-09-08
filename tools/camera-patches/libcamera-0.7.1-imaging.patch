@@ -1,0 +1,626 @@
+diff --git a/include/libcamera/internal/software_isp/swisp_stats.h b/include/libcamera/internal/software_isp/swisp_stats.h
+--- a/include/libcamera/internal/software_isp/swisp_stats.h
++++ b/include/libcamera/internal/software_isp/swisp_stats.h
+@@ -32,6 +32,27 @@
+ 	 */
+ 	RGB<uint64_t> sum_;
+ 	/**
++	 * \brief Number of sampled pixels that contributed to sum_
++	 *
++	 * Saturated pixels are left out of the sums, so this is smaller than
++	 * the number of pixels sampled. It is needed to subtract the black
++	 * level from the sums, which is a per-pixel offset.
++	 */
++	uint64_t sumSamples_;
++	/**
++	 * \brief Sums over only those sampled pixels that already look neutral
++	 *
++	 * Grey world assumes the scene averages to grey. One large coloured
++	 * object breaks that assumption and takes the estimate with it. These
++	 * sums cover only the pixels the current gains already bring close to
++	 * neutral, which is the same assumption applied where it holds.
++	 */
++	RGB<uint64_t> sumNeutral_;
++	/**
++	 * \brief Number of sampled pixels that contributed to sumNeutral_
++	 */
++	uint64_t sumNeutralSamples_;
++	/**
+ 	 * \brief Number of bins in the yHistogram
+ 	 */
+ 	static constexpr unsigned int kYHistogramSize = 64;
+diff --git a/include/libcamera/internal/software_isp/swstats_cpu.h b/include/libcamera/internal/software_isp/swstats_cpu.h
+--- a/include/libcamera/internal/software_isp/swstats_cpu.h
++++ b/include/libcamera/internal/software_isp/swstats_cpu.h
+@@ -54,6 +54,7 @@
+ 
+ 	int configure(const StreamConfiguration &inputCfg, unsigned int statsBufferCount = 1);
+ 	void setWindow(const Rectangle &window);
++	void setNeutralReference(const RGB<float> &gains, const RGB<float> &blackLevel);
+ 	void startFrame(uint32_t frame);
+ 	void finishFrame(uint32_t frame, uint32_t bufferId);
+ 	void processFrame(uint32_t frame, uint32_t bufferId, FrameBuffer *input);
+@@ -103,6 +104,10 @@
+ 
+ 	processFrameFn processFrame_;
+ 
++	/* Reference the neutral-pixel test is taken against, from the IPA. */
++	float neutralGains_[3] = { 1.0f, 1.0f, 1.0f };
++	float neutralBlack_ = 0.0f;
++
+ 	/* Variables set by configure(), used every line */
+ 	statsProcessFn stats0_;
+ 	statsProcessFn stats2_;
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -653,6 +653,18 @@
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("imx708", CameraSensorHelperImx708)
+ 
++class CameraSensorHelperOv02c10 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperOv02c10()
++	{
++		/* From Linux kernel driver: 0x40 at 10bits. */
++		blackLevel_ = 4096;
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 16 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("ov02c10", CameraSensorHelperOv02c10)
++
+ class CameraSensorHelperOv2685 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/ipa/simple/algorithms/awb.cpp b/src/ipa/simple/algorithms/awb.cpp
+--- a/src/ipa/simple/algorithms/awb.cpp
++++ b/src/ipa/simple/algorithms/awb.cpp
+@@ -38,15 +38,8 @@
+ 		  DebayerParams *params)
+ {
+ 	auto &gains = context.activeState.awb.gains;
+-	Matrix<float, 3, 3> gainMatrix = { { gains.r(), 0, 0,
+-					     0, gains.g(), 0,
+-					     0, 0, gains.b() } };
+-	context.activeState.combinedMatrix =
+-		gainMatrix * context.activeState.combinedMatrix;
+ 
+-	frameContext.gains.red = gains.r();
+-	frameContext.gains.blue = gains.b();
+-
++	frameContext.gains = gains;
+ 	params->gains = gains;
+ }
+ 
+@@ -56,14 +49,10 @@
+ 		  const SwIspStats *stats,
+ 		  ControlList &metadata)
+ {
+-	const SwIspStats::Histogram &histogram = stats->yHistogram;
+ 	const uint8_t blackLevel = context.activeState.blc.level;
+ 
+-	const float mdGains[] = {
+-		static_cast<float>(frameContext.gains.red),
+-		static_cast<float>(frameContext.gains.blue)
+-	};
+-	metadata.set(controls::ColourGains, mdGains);
++	metadata.set(controls::ColourGains, { frameContext.gains.r(),
++					      frameContext.gains.b() });
+ 
+ 	if (!stats->valid)
+ 		return;
+@@ -73,15 +62,22 @@
+ 	 * would be off if they were computed from the whole brightness range
+ 	 * rather than from the sensor range.
+ 	 */
+-	const uint64_t nPixels = std::accumulate(
+-		histogram.begin(), histogram.end(), uint64_t(0));
++	/* Prefer unsaturated neutral pixels; bootstrap from the valid scene. */
++	uint64_t nPixels = stats->sumNeutralSamples_;
++	RGB<uint64_t> rawSum = stats->sumNeutral_;
++	if (nPixels < stats->sumSamples_ * 0.05) {
++		nPixels = stats->sumSamples_;
++		rawSum = stats->sum_;
++	}
++	if (!nPixels)
++		return;
+ 	const uint64_t offset = blackLevel * nPixels;
+ 	const uint64_t minValid = 1;
+ 	/*
+ 	 * Make sure the sums are at least minValid, while preventing unsigned
+ 	 * integer underflow.
+ 	 */
+-	const RGB<uint64_t> sum = stats->sum_.max(offset + minValid) - offset;
++	const RGB<uint64_t> sum = rawSum.max(offset + minValid) - offset;
+ 
+ 	/*
+ 	 * Calculate red and blue gains for AWB.
+diff --git a/src/ipa/simple/ipa_context.h b/src/ipa/simple/ipa_context.h
+--- a/src/ipa/simple/ipa_context.h
++++ b/src/ipa/simple/ipa_context.h
+@@ -76,10 +76,7 @@
+ 		double gain;
+ 	} sensor;
+ 
+-	struct {
+-		double red;
+-		double blue;
+-	} gains;
++	RGB<float> gains;
+ 
+ 	float gamma;
+ 	std::optional<float> contrast;
+diff --git a/src/ipa/simple/algorithms/agc.h b/src/ipa/simple/algorithms/agc.h
+--- a/src/ipa/simple/algorithms/agc.h
++++ b/src/ipa/simple/algorithms/agc.h
+@@ -19,12 +19,15 @@
+ 	Agc();
+ 	~Agc() = default;
+ 
++	int init(IPAContext &context, const ValueNode &tuningData) override;
++
+ 	void process(IPAContext &context, const uint32_t frame,
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+ 		     ControlList &metadata) override;
+ 
+ private:
++	double target_ = 2.5;
+ 	void updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV);
+ };
+ 
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -25,12 +25,6 @@
+  * The number of bins to use for the optimal exposure calculations.
+  */
+ static constexpr unsigned int kExposureBinsCount = 5;
+-
+-/*
+- * The exposure is optimal when the mean sample value of the histogram is
+- * in the middle of the range.
+- */
+-static constexpr float kExposureOptimal = kExposureBinsCount / 2.0;
+ 
+ /*
+  * This implements the hysteresis for the exposure adjustment.
+@@ -65,12 +59,20 @@
+ {
+ }
+ 
++int Agc::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
++{
++	target_ = tuningData["target"].get<double>(2.5);
++	if (!std::isfinite(target_) || target_ < 1.1 || target_ > 4.0)
++		return -EINVAL;
++	return 0;
++}
++
+ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV)
+ {
+ 	int32_t &exposure = frameContext.sensor.exposure;
+ 	double &again = frameContext.sensor.gain;
+ 
+-	double error = kExposureOptimal - exposureMSV;
++	double error = target_ - exposureMSV;
+ 
+ 	if (std::abs(error) <= kExposureSatisfactory)
+ 		return;
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -229,9 +229,7 @@
+ 		context_.configuration.agc.againMax = camHelper_->gain(againMax);
+ 		context_.configuration.agc.again10 = std::max(context_.configuration.agc.againMin, 1.0);
+ 		context_.configuration.agc.againMinStep =
+-			(context_.configuration.agc.againMax -
+-			 context_.configuration.agc.againMin) /
+-			100.0;
++			camHelper_->gain(againMin + 1) - camHelper_->gain(againMin);
+ 		if (camHelper_->blackLevel().has_value()) {
+ 			/*
+ 			 * The black level from camHelper_ is a 16 bit value, software ISP
+diff --git a/src/libcamera/shaders/bayer_1x_packed.frag b/src/libcamera/shaders/bayer_1x_packed.frag
+--- a/src/libcamera/shaders/bayer_1x_packed.frag
++++ b/src/libcamera/shaders/bayer_1x_packed.frag
+@@ -65,6 +65,7 @@
+ uniform vec2 tex_bayer_first_red;
+ 
+ uniform sampler2D tex_y;
++uniform vec3 awb;
+ uniform mat3 ccm;
+ uniform vec3 blacklevel;
+ uniform float gamma;
+@@ -227,6 +228,9 @@
+ 
+ 	rgb = rgb - blacklevel;
+ 
++	/* Apply AWB gains, and saturate each channel at sensor range */
++	rgb = clamp(rgb * awb, vec3(0.0), vec3(1.0));
++
+ 	/*
+ 	 *   CCM is a 3x3 in the format
+ 	 *
+diff --git a/src/libcamera/shaders/bayer_unpacked.frag b/src/libcamera/shaders/bayer_unpacked.frag
+--- a/src/libcamera/shaders/bayer_unpacked.frag
++++ b/src/libcamera/shaders/bayer_unpacked.frag
+@@ -24,6 +24,7 @@
+ varying vec4            center;
+ varying vec4            yCoord;
+ varying vec4            xCoord;
++uniform vec3            awb;
+ uniform mat3            ccm;
+ uniform vec3            blacklevel;
+ uniform float           gamma;
+@@ -130,6 +131,9 @@
+ 
+     rgb = rgb - blacklevel;
+ 
++    /* Apply AWB gains, and saturate each channel at sensor range */
++    rgb = clamp(rgb * awb, vec3(0.0), vec3(1.0));
++
+     /*
+      *   CCM is a 3x3 in the format
+      *
+diff --git a/src/libcamera/software_isp/debayer_cpu.cpp b/src/libcamera/software_isp/debayer_cpu.cpp
+--- a/src/libcamera/software_isp/debayer_cpu.cpp
++++ b/src/libcamera/software_isp/debayer_cpu.cpp
+@@ -881,32 +881,20 @@
+ 
+ void DebayerCpu::updateGammaTable(const DebayerParams &params)
+ {
+-	const RGB<float> blackLevel = params.blackLevel;
+-	/* Take let's say the green channel black level */
+-	const unsigned int blackIndex = blackLevel[1] * gammaTable_.size();
+ 	const float gamma = params.gamma;
+ 	const float contrastExp = params.contrastExp;
+ 
+-	const float divisor = gammaTable_.size() - blackIndex - 1.0;
+-	for (unsigned int i = blackIndex; i < gammaTable_.size(); i++) {
+-		float normalized = (i - blackIndex) / divisor;
++	const float divisor = gammaTable_.size() - 1.0;
++	for (auto [i, value] : utils::enumerate(gammaTable_)) {
++		float normalized = i / divisor;
+ 		/* Convert 0..2 to 0..infinity; avoid actual inifinity at tan(pi/2) */
+ 		/* Apply simple S-curve */
+ 		if (normalized < 0.5)
+ 			normalized = 0.5 * std::pow(normalized / 0.5, contrastExp);
+ 		else
+ 			normalized = 1.0 - 0.5 * std::pow((1.0 - normalized) / 0.5, contrastExp);
+-		gammaTable_[i] = UINT8_MAX *
+-				 std::pow(normalized, gamma);
+-	}
+-	/*
+-	 * Due to CCM operations, the table lookup may reach indices below the black
+-	 * level. Let's set the table values below black level to the minimum
+-	 * non-black value to prevent problems when the minimum value is
+-	 * significantly non-zero (for example, when the image should be all grey).
+-	 */
+-	std::fill(gammaTable_.begin(), gammaTable_.begin() + blackIndex,
+-		  gammaTable_[blackIndex]);
++		value = UINT8_MAX * std::pow(normalized, gamma);
++	}
+ }
+ 
+ void DebayerCpu::updateLookupTables(const DebayerParams &params)
+@@ -918,14 +906,20 @@
+ 	if (gammaUpdateNeeded)
+ 		updateGammaTable(params);
+ 
++	/* Processing order: black level -> gains -> gamma */
+ 	auto matrixChanged = [](const Matrix<float, 3, 3> &m1, const Matrix<float, 3, 3> &m2) -> bool {
+ 		return !std::equal(m1.data().begin(), m1.data().end(), m2.data().begin());
+ 	};
+ 	const unsigned int gammaTableSize = gammaTable_.size();
+-	const double div = static_cast<double>(kRGBLookupSize) / gammaTableSize;
++
++	const RGB<float> blackIndex = params.blackLevel * kRGBLookupSize;
++	const RGB<float> gains = params.gains;
++	const RGB<float> div = (RGB<float>(kRGBLookupSize) - blackIndex).max(1.0);
++
+ 	if (ccmEnabled_) {
+ 		if (gammaUpdateNeeded ||
+-		    matrixChanged(params.combinedMatrix, params_.combinedMatrix)) {
++		    matrixChanged(params.combinedMatrix, params_.combinedMatrix) ||
++		    params.gains != params_.gains) {
+ 			auto &red = swapRedBlueGains_ ? blueCcm_ : redCcm_;
+ 			auto &green = greenCcm_;
+ 			auto &blue = swapRedBlueGains_ ? redCcm_ : blueCcm_;
+@@ -933,30 +927,32 @@
+ 			const unsigned int greenIndex = 1;
+ 			const unsigned int blueIndex = swapRedBlueGains_ ? 0 : 2;
+ 			for (unsigned int i = 0; i < kRGBLookupSize; i++) {
+-				red[i].r = std::round(i * params.combinedMatrix[redIndex][0]);
+-				red[i].g = std::round(i * params.combinedMatrix[greenIndex][0]);
+-				red[i].b = std::round(i * params.combinedMatrix[blueIndex][0]);
+-				green[i].r = std::round(i * params.combinedMatrix[redIndex][1]);
+-				green[i].g = std::round(i * params.combinedMatrix[greenIndex][1]);
+-				green[i].b = std::round(i * params.combinedMatrix[blueIndex][1]);
+-				blue[i].r = std::round(i * params.combinedMatrix[redIndex][2]);
+-				blue[i].g = std::round(i * params.combinedMatrix[greenIndex][2]);
+-				blue[i].b = std::round(i * params.combinedMatrix[blueIndex][2]);
+-				gammaLut_[i] = gammaTable_[i / div];
++				const RGB<float> rgb = (gains * (RGB<float>(i) - blackIndex) * kRGBLookupSize / div)
++							       .max(0.0).min(kRGBLookupSize - 1);
++				red[i].r = std::round(rgb.r() * params.combinedMatrix[redIndex][0]);
++				red[i].g = std::round(rgb.r() * params.combinedMatrix[greenIndex][0]);
++				red[i].b = std::round(rgb.r() * params.combinedMatrix[blueIndex][0]);
++				green[i].r = std::round(rgb.g() * params.combinedMatrix[redIndex][1]);
++				green[i].g = std::round(rgb.g() * params.combinedMatrix[greenIndex][1]);
++				green[i].b = std::round(rgb.g() * params.combinedMatrix[blueIndex][1]);
++				blue[i].r = std::round(rgb.b() * params.combinedMatrix[redIndex][2]);
++				blue[i].g = std::round(rgb.b() * params.combinedMatrix[greenIndex][2]);
++				blue[i].b = std::round(rgb.b() * params.combinedMatrix[blueIndex][2]);
++				gammaLut_[i] = gammaTable_[i * gammaTableSize / kRGBLookupSize];
+ 			}
+ 		}
+ 	} else {
+ 		if (gammaUpdateNeeded || params.gains != params_.gains) {
+-			auto &gains = params.gains;
+ 			auto &red = swapRedBlueGains_ ? blue_ : red_;
+ 			auto &green = green_;
+ 			auto &blue = swapRedBlueGains_ ? red_ : blue_;
+ 			for (unsigned int i = 0; i < kRGBLookupSize; i++) {
+-				/* Apply gamma after gain! */
+-				const RGB<float> lutGains = (gains * i / div).min(gammaTableSize - 1);
+-				red[i] = gammaTable_[static_cast<unsigned int>(lutGains.r())];
+-				green[i] = gammaTable_[static_cast<unsigned int>(lutGains.g())];
+-				blue[i] = gammaTable_[static_cast<unsigned int>(lutGains.b())];
++				const RGB<float> lutGains =
++					(gains * (RGB<float>(i) - blackIndex) * gammaTableSize / div)
++						.max(0.0).min(gammaTableSize - 1);
++				red[i] = gammaTable_[lutGains.r()];
++				green[i] = gammaTable_[lutGains.g()];
++				blue[i] = gammaTable_[lutGains.b()];
+ 			}
+ 		}
+ 	}
+@@ -1070,6 +1066,13 @@
+ 
+ 	updateLookupTables(params);
+ 
++	/*
++	 * The statistics need this frame's gains to tell which pixels already
++	 * look neutral. They cannot come from the IPA afterwards: by then the
++	 * sums are taken, and a sum cannot be un-mixed.
++	 */
++	stats_->setNeutralReference(params.gains, params.blackLevel);
++
+ 	/* Copy metadata from the input buffer */
+ 	FrameMetadata &metadata = output->_d()->metadata();
+ 	metadata.status = input->metadata().status;
+diff --git a/src/libcamera/software_isp/debayer_egl.cpp b/src/libcamera/software_isp/debayer_egl.cpp
+--- a/src/libcamera/software_isp/debayer_egl.cpp
++++ b/src/libcamera/software_isp/debayer_egl.cpp
+@@ -104,6 +104,7 @@
+ 	attributeTexture_ = glGetAttribLocation(programId_, "textureIn");
+ 
+ 	textureUniformBayerDataIn_ = glGetUniformLocation(programId_, "tex_y");
++	awbUniformDataIn_ = glGetUniformLocation(programId_, "awb");
+ 	ccmUniformDataIn_ = glGetUniformLocation(programId_, "ccm");
+ 	blackLevelUniformDataIn_ = glGetUniformLocation(programId_, "blacklevel");
+ 	gammaUniformDataIn_ = glGetUniformLocation(programId_, "gamma");
+@@ -117,6 +118,7 @@
+ 
+ 	LOG(Debayer, Debug) << "vertexIn " << attributeVertex_ << " textureIn " << attributeTexture_
+ 			    << " tex_y " << textureUniformBayerDataIn_
++			    << " awb " << awbUniformDataIn_
+ 			    << " ccm " << ccmUniformDataIn_
+ 			    << " blacklevel " << blackLevelUniformDataIn_
+ 			    << " gamma " << gammaUniformDataIn_
+@@ -485,6 +487,9 @@
+ 	glUniform3f(blackLevelUniformDataIn_, params.blackLevel[0], params.blackLevel[1], params.blackLevel[2]);
+ 	LOG(Debayer, Debug) << " blackLevelUniformDataIn_ " << blackLevelUniformDataIn_ << " data " << params.blackLevel;
+ 
++	glUniform3f(awbUniformDataIn_, params.gains[0], params.gains[1], params.gains[2]);
++	LOG(Debayer, Debug) << " awbUniformDataIn_ " << awbUniformDataIn_ << " data " << params.gains;
++
+ 	/*
+ 	 * Gamma
+ 	 */
+@@ -535,6 +540,13 @@
+ 
+ 	dmaSyncBegin(dmaSyncers, input, nullptr);
+ 
++	/*
++	 * The statistics need this frame's gains to tell which pixels already
++	 * look neutral. They cannot come from the IPA afterwards: by then the
++	 * sums are taken, and a sum cannot be un-mixed.
++	 */
++	stats_->setNeutralReference(params.gains, params.blackLevel);
++
+ 	/* Copy metadata from the input buffer */
+ 	FrameMetadata &metadata = output->_d()->metadata();
+ 	metadata.status = input->metadata().status;
+diff --git a/src/libcamera/software_isp/debayer_egl.h b/src/libcamera/software_isp/debayer_egl.h
+--- a/src/libcamera/software_isp/debayer_egl.h
++++ b/src/libcamera/software_isp/debayer_egl.h
+@@ -89,6 +89,9 @@
+ 
+ 	GLint textureUniformBayerDataIn_;
+ 
++	/* Per-frame AWB gains */
++	GLint awbUniformDataIn_;
++
+ 	/* Represent per-frame CCM as a uniform vector of floats 3 x 3 */
+ 	GLint ccmUniformDataIn_;
+ 
+diff --git a/src/libcamera/software_isp/swstats_cpu.cpp b/src/libcamera/software_isp/swstats_cpu.cpp
+--- a/src/libcamera/software_isp/swstats_cpu.cpp
++++ b/src/libcamera/software_isp/swstats_cpu.cpp
+@@ -10,6 +10,8 @@
+  */
+ 
+ #include "libcamera/internal/software_isp/swstats_cpu.h"
++
++#include <cmath>
+ 
+ #include <libcamera/base/log.h>
+ 
+@@ -167,6 +169,28 @@
+ 			<< "Failed to create shared memory for statistics";
+ }
+ 
++/*
++ * Pixels at or above this fraction of full scale are treated as saturated and
++ * excluded from the colour sums. A saturated pixel reads the same in every
++ * channel whatever colour it was, so it says nothing about the illuminant -
++ * but it is the brightest kind of pixel there is, so it carries a lot of
++ * weight in a sum. A scene with a blown out window or wall can put a third of
++ * the total into pixels that carry no information, dragging the grey world
++ * estimate towards neutral and leaving a visible cast on everything else.
++ */
++static constexpr unsigned int kSaturationThreshold = 248;
++
++/*
++ * How far a pixel may sit from neutral, as a fraction of its own level, and
++ * still count as evidence of what neutral looks like. Loose enough that a
++ * typical scene keeps most of its pixels, because an estimator that discards
++ * almost everything is one awkward frame away from having nothing left.
++ */
++static constexpr float kNeutralTolerance = 0.20f;
++
++/* Below this level above black the channel ratios are mostly noise. */
++static constexpr float kNeutralMinLevel = 8.0f;
++
+ static constexpr unsigned int kRedYMul = 77; /* 0.299 * 256 */
+ static constexpr unsigned int kGreenYMul = 150; /* 0.587 * 256 */
+ static constexpr unsigned int kBlueYMul = 29; /* 0.114 * 256 */
+@@ -177,22 +201,65 @@
+                                           \
+ 	uint64_t sumR = 0;                \
+ 	uint64_t sumG = 0;                \
+-	uint64_t sumB = 0;
+-
+-#define SWSTATS_ACCUMULATE_LINE_STATS(div) \
+-	sumR += r;                         \
+-	sumG += g;                         \
+-	sumB += b;                         \
+-                                           \
+-	yVal = r * kRedYMul;               \
+-	yVal += g * kGreenYMul;            \
+-	yVal += b * kBlueYMul;             \
++	uint64_t sumB = 0;                \
++	uint64_t nSamples = 0;            \
++	uint64_t sumNR = 0;               \
++	uint64_t sumNG = 0;               \
++	uint64_t sumNB = 0;               \
++	uint64_t nNeutral = 0;
++
++#define SWSTATS_ACCUMULATE_LINE_STATS(div)      \
++	if (r < kSaturationThreshold * (div) && \
++	    g < kSaturationThreshold * (div) && \
++	    b < kSaturationThreshold * (div)) { \
++		sumR += r;                      \
++		sumG += g;                      \
++		sumB += b;                      \
++		nSamples++;                     \
++		SWSTATS_ACCUMULATE_NEUTRAL(div) \
++	}                                       \
++                                                \
++	yVal = r * kRedYMul;                    \
++	yVal += g * kGreenYMul;                 \
++	yVal += b * kBlueYMul;                  \
+ 	stats.yHistogram[yVal * SwIspStats::kYHistogramSize / (256 * 256 * (div))]++;
+ 
+-#define SWSTATS_FINISH_LINE_STATS() \
+-	stats.sum_.r() += sumR;     \
+-	stats.sum_.g() += sumG;     \
+-	stats.sum_.b() += sumB;
++/*
++ * Apply the gains the IPA settled on last frame and ask whether what comes out
++ * is neutral. It has to happen here rather than in the IPA: by the time the
++ * IPA sees the statistics they are already summed, and a sum cannot be
++ * un-mixed. One frame of lag on the gains costs nothing, the estimator being
++ * iterative by nature - the iteration simply runs across frames.
++ */
++#define SWSTATS_ACCUMULATE_NEUTRAL(div)                    \
++	{                                                  \
++		float black = neutralBlack_ * (div);       \
++		float nr = (r - black) * neutralGains_[0]; \
++		float ng = (g - black) * neutralGains_[1]; \
++		float nb = (b - black) * neutralGains_[2]; \
++		float mean = (nr + ng + nb) / 3.0f;        \
++		float tol = kNeutralTolerance * mean;      \
++                                                           \
++		if (mean > kNeutralMinLevel * (div) &&     \
++		    std::abs(nr - mean) < tol &&           \
++		    std::abs(ng - mean) < tol &&           \
++		    std::abs(nb - mean) < tol) {           \
++			sumNR += r;                        \
++			sumNG += g;                        \
++			sumNB += b;                        \
++			nNeutral++;                        \
++		}                                          \
++	}
++
++#define SWSTATS_FINISH_LINE_STATS()     \
++	stats.sum_.r() += sumR;         \
++	stats.sum_.g() += sumG;         \
++	stats.sum_.b() += sumB;         \
++	stats.sumSamples_ += nSamples;  \
++	stats.sumNeutral_.r() += sumNR; \
++	stats.sumNeutral_.g() += sumNG; \
++	stats.sumNeutral_.b() += sumNB; \
++	stats.sumNeutralSamples_ += nNeutral;
+ 
+ void SwStatsCpu::statsBGGR8Line0(const uint8_t *src[], SwIspStats &stats)
+ {
+@@ -324,6 +391,23 @@
+ }
+ 
+ /**
++ * \brief Set what the neutral-pixel test measures against
++ * \param[in] gains Colour gains the IPA is currently applying
++ * \param[in] blackLevel Black level, normalised to [0,1]
++ *
++ * Called once per frame, before the statistics for that frame are gathered.
++ */
++void SwStatsCpu::setNeutralReference(const RGB<float> &gains,
++				     const RGB<float> &blackLevel)
++{
++	for (unsigned int i = 0; i < 3; i++)
++		neutralGains_[i] = static_cast<float>(gains[i]);
++
++	/* The line statistics work on an 8-bit scale times the format divisor. */
++	neutralBlack_ = static_cast<float>(blackLevel[1]) * 255.0f;
++}
++
++/**
+  * \brief Reset state to start statistics gathering for a new frame
+  * \param[in] frame The frame number
+  *
+@@ -339,6 +423,9 @@
+ 
+ 	for (auto &s : stats_) {
+ 		s.sum_ = RGB<uint64_t>({ 0, 0, 0 });
++		s.sumSamples_ = 0;
++		s.sumNeutral_ = RGB<uint64_t>({ 0, 0, 0 });
++		s.sumNeutralSamples_ = 0;
+ 		s.yHistogram.fill(0);
+ 	}
+ }
+@@ -356,14 +443,21 @@
+ 
+ 	if (valid) {
+ 		sharedStats_->sum_ = RGB<uint64_t>({ 0, 0, 0 });
++		sharedStats_->sumSamples_ = 0;
++		sharedStats_->sumNeutral_ = RGB<uint64_t>({ 0, 0, 0 });
++		sharedStats_->sumNeutralSamples_ = 0;
+ 		sharedStats_->yHistogram.fill(0);
+ 		for (const auto &s : stats_) {
+ 			sharedStats_->sum_ += s.sum_;
++			sharedStats_->sumSamples_ += s.sumSamples_;
++			sharedStats_->sumNeutral_ += s.sumNeutral_;
++			sharedStats_->sumNeutralSamples_ += s.sumNeutralSamples_;
+ 			for (unsigned int j = 0; j < SwIspStats::kYHistogramSize; j++)
+ 				sharedStats_->yHistogram[j] += s.yHistogram[j];
+ 		}
+ 
+ 		sharedStats_->sum_ >>= sumShift_;
++		sharedStats_->sumNeutral_ >>= sumShift_;
+ 	}
+ 
+ 	sharedStats_->valid = valid;

@@ -1,105 +1,134 @@
-# face-unlock — libcamera/ISP face authentication for Linux (PAM)
+# Facelock
 
-Howdy-style login, rebuilt for machines where the camera is **not** a UVC
-webcam: Qualcomm CAMSS / libcamera `simple`-pipeline sensors (here:
-`ov02c10` RGB + `hm1092` IR with `ir:flash` LED on a Snapdragon X laptop).
+Face login for Linux through PAM, using libcamera or a USB webcam and
+OpenCV's YuNet and SFace models. The main target is the ASUS Zenbook A14
+with OV02C10 RGB and HM1092 IR cameras.
 
-## Requirements (read before installing)
+If capture or matching fails, PAM continues to your password. The IR check
+measures the face region's response to the illuminator, but prints and
+screens can reflect IR too. Facelock has not been validated against spoofing.
 
-**This is not a drop-in replacement for stock libcamera.** Concurrent dual
-capture needs two things that upstream libcamera does not provide on
-Qualcomm CAMSS:
+## Camera support
 
-1. **A patched libcamera** with the disjoint-routes allocator
-   (`prefer_disjoint_routes`), so both sensors get separate CSID/VFE paths
-   instead of fighting over `msm_csid0`. The patch lives in the
-   `a14-scratch` research tree and is applied to a staged build (see
-   `research/x1p-libcamera-disjoint-routes.patch` and
-   `zenbook-staging-20260906.md` for the exact tree/config).
-2. **A patched kernel** with the correct full/lite CSID and VFE mapping for
-   X1P (`research/x1p-camss-normal-world-mapping.patch`). Stock kernels
-   route both sensors onto `msm_csid0` and the second `start()` fails with
-   `-EBUSY`.
+| Profile | Required cameras | Notes |
+| --- | --- | --- |
+| `zenbook-a14` | RGB and IR | Both must match, even in low light. Requires a patched camera stack. |
+| `zenbook-a14-ir` | IR | For use in the dark. Requires fresh enrollment. |
+| `generic-uvc` | RGB | Set the USB webcam device path before enrolling. |
 
-On the Zenbook A14 the patched stack lives at
-`~/scratch/x1p-concurrency-20260906/` (kernel in
-`/lib/modules/*/updates/qcom-camss.ko`, libcamera under
-`build/src/libcamera`); `facelock-run` wires that staged tree into
-`LD_LIBRARY_PATH`/`PYTHONPATH`/`XDG_CONFIG_HOME` and falls back to the
-legacy sequential paths automatically when it's absent.
+Use `profiles/_template.yaml` for another machine. `facelock-detect` lists
+cameras and LED controls to help fill it in. Cameras that cannot run together
+can use `capture.mode: sequential`. Facelock never switches to fewer cameras
+when one fails.
 
-**Without those two patches you get RGB-only auth.** IR falls back to the
-sequential `cam` raw path (slower, single-sensor, still works), but the
-concurrent RGB+IR path that makes v1 feel like Windows Hello is not
-available on stock libcamera.
+## Setup
 
-## How it differs from Howdy
+Packages install under `/usr` and leave PAM disabled. After installing a
+package, copy a profile and edit it for your account and cameras:
 
-| | Howdy | face-unlock |
-|---|---|---|
-| Camera API | OpenCV `VideoCapture` on `/dev/videoN` (UVC) | libcamera via GStreamer `libcamerasrc`, per-sensor select |
-| Face engine | dlib (heavy, x86/CUDA baggage, dead upstream) | OpenCV YuNet + SFace ONNX on CPU (`cv2.dnn`) |
-| Power | holds device open | opens camera per attempt, closes it — sensor suspends |
-| IR | emitter hacks per driver | `ir:flash` LED + IR sensor as second factor path |
-
-## Security scope (read this)
-
-v1 is **convenience login**, not spoof-proof auth: no depth/liveness
-check yet (IR presence match only). PAM entries are `sufficient`, so the
-password path always still works. Embeddings live `0640 root:video` in
-`/var/lib/facelock/` — group-readable (not root-only) because sudo runs PAM
-auth helpers as the invoking user, not as root.
-
-## Layout
-
-- `facelock/capture.py` — on-demand raw-frame snapshot via gst-launch
-- `facelock/recognize.py` — YuNet detect + SFace embed/cosine match
-- `facelock/store.py` — embedding save/load
-- `enroll.py` / `verify.py` — CLIs (`verify.py` is what PAM calls)
-- `pam_check.sh` — `pam_exec` entry (NEVER denies, only succeeds/defers)
-- `setup_models.py` — downloads YuNet + SFace ONNX models
-- `config.yaml` — sensors, thresholds, LED (installed to `/etc/facelock/`)
-- `install.sh` / `uninstall.sh` — system wiring (run on the machine)
-- `detect_cameras.sh` — lists libcamera names to put in `config.yaml`
-- `99-facelock-ir-led.rules` — lets `video` group drive the IR flash LED
-
-## Bring-up
-
-On the machine (needs sudo for pacman + PAM + udev):
-
-```bash
-cd ~/Projects/face-unlock
-./detect_cameras.sh        # confirm/paste IR camera-name into config.yaml
-./install.sh               # deps, models, udev, files, PAM (backs up first)
-sudo python /usr/local/lib/facelock/enroll.py --sensor both
-python /usr/local/lib/facelock/verify.py   # test as yourself first
+```sh
+sudo cp /usr/share/facelock/profiles/zenbook-a14.yaml /etc/facelock/config.yaml
+sudoedit /etc/facelock/config.yaml
 ```
 
-Then test login/sudo/hyprlock from a **second session** before logging out.
-If anything misbehaves: `./uninstall.sh` restores PAM backups.
+Set `pam.user` to your username. A14 users also need to configure the
+[camera runtime](#a14-camera-runtime) below before enrolling.
 
-## Porting to another ARM laptop
+Download the models, enroll, then check that a new capture matches.
+Replace `YOUR_USER` with your username:
 
-1. Run `facelock-detect` — it prints cameras, GStreamer elements, UVC
-   nodes, LED flash nodes, and the pycamera API style.
-2. Copy `profiles/_template.yaml` to `profiles/<machine>.yaml` and fill in
-   the suggested values. `profiles/generic-uvc.yaml` covers plain webcams
-   with no IR; `profiles/zenbook-a14.yaml` is the dual-sensor reference.
-3. Install with your profile (backs up any existing config):
-   `./install.sh --profile <machine>`
-4. Enroll + verify, tune `match.*_threshold` to your lighting.
-5. Send the profile upstream so the next machine works out of the box.
+```sh
+sudo python3 /usr/lib/facelock/setup_models.py
+sudo facelock-run /usr/lib/facelock/enroll.py --user YOUR_USER
+sudo facelock-run /usr/lib/facelock/verify.py --user YOUR_USER --json
+```
 
-Notes for porters:
+Once verification works, enable face login for the PAM services you use:
 
-- UVC-only machines need just `cameras.rgb: uvc:/dev/videoN`
-  (`capture.mode: uvc`) plus `gst-plugins-good` for `v4l2src`.
-- Single-IR-sensor libcamera machines use `capture.mode: sequential`
-  (RGB via `libcamerasrc`, IR via `cam` raw) — no kernel work needed.
-- Concurrent dual (`dual-pycamera`) needs either luck with the stock
-  route allocator or a board-specific mapping fix like the X1P one.
-- `dual_capture.py` speaks both pycamera API styles (snake_case 0.7.1
-  and camelCase); anything else falls back to sequential automatically.
-- Packaged installs (`PKGBUILD`, Arch `any`) keep the same layout under
-  `/usr` instead of `/usr/local`; PAM is wired explicitly with
-  `facelock-pam-enable`, never automatically.
+```sh
+sudo facelock-pam-enable sudo login
+```
+
+The helper backs up each service before editing it. Keep a second session
+open while testing. Enrollment and verification need root access; lock
+screens that run PAM without privileges will continue to use passwords.
+
+For a development install, run `./install.sh --profile=zenbook-a14 --no-pam`.
+It installs the application under `/usr/local`; adjust the commands above
+accordingly. Add `--pam` only when you want the installer to enable PAM.
+
+## A14 camera runtime
+
+Concurrent RGB and IR capture needs the patched X1P CAMSS mapping and
+libcamera's `prefer_disjoint_routes` allocator. Stock libcamera alone is not
+enough. The routing patches currently live in the parent A14 research tree:
+`research/x1p-camss-normal-world-mapping.patch` and
+`research/x1p-libcamera-disjoint-routes.patch`.
+
+The [imaging backport](tools/camera-patches/README.md) covers the CPU pipeline
+fixes needed by the included OV02C10 tuning. The A14 profile captures the full
+1920×1080 view and resizes it to 640×360; requesting a smaller image directly
+from this SoftISP build crops the view instead.
+
+Copy a matching build into a fresh, root-owned directory:
+
+```sh
+sudo python3 tools/stage_camera_runtime.py \
+  /path/to/camera-build /opt/facelock/camera-stack
+```
+
+Set `runtime.stack: /opt/facelock/camera-stack` in the configuration. The tool
+copies the libraries, IPA, proxy worker and Python binding. The binding must
+match your system Python version. Root authentication rejects runtime paths
+that an unprivileged user can modify, including builds in a home directory.
+
+The A14 profiles already set `runtime.tuning: /usr/share/facelock/tuning`.
+They use the flash illuminator; select torch mode only on hardware where it
+works.
+
+## Upgrading from 0.1
+
+Enroll again after upgrading. Version 0.2 does not accept the old `.npz`
+records, which came from a group-writable store. New `.face` records are
+bound to the account and capture settings, with an HMAC to detect changes.
+They are not encrypted. The store is root-owned with mode `0700`, and records
+and the signing key use `0600`.
+
+Package upgrades preserve your configuration. Compare it with the new example,
+then verify and rerun `facelock-pam-enable` to update the PAM entry. Changing
+required cameras or capture settings also requires fresh enrollment.
+
+## Troubleshooting
+
+Check capture without loading the face models:
+
+```sh
+sudo facelock-run /usr/lib/facelock/diagnose.py --camera-only
+```
+
+Omit `--camera-only` to include face detection and image quality checks.
+Add `--save-frames /private/directory` to save the last images. Diagnostics
+leave enrollment untouched; normal authentication saves no images.
+Verification details are logged to `/var/lib/facelock/attempts.jsonl` by default.
+Close other camera applications before testing.
+
+For unprivileged diagnostics with a development build:
+
+```sh
+FACELOCK_STAGED=/path/to/camera-build \
+  facelock-run /usr/lib/facelock/diagnose.py --config /path/to/test.yaml
+```
+
+Root runs ignore `FACELOCK_STAGED` and use `runtime.stack` instead.
+
+## Tests
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install numpy opencv-python-headless PyYAML
+.venv/bin/python -B -m unittest discover -s tests -v
+```
+
+The tests cover capture timing, pixel conversion, matching policy, enrollment
+integrity, runtime isolation and packaging. They run without camera hardware.
+See [ci/README.md](ci/README.md) for package builds and releases.

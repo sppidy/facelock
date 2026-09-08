@@ -20,26 +20,35 @@ def load_models(model_dir):
 
 
 def embed(img_bgr, det, rec, min_score=0.6):
-    """Best-face embedding. Returns (vector|None, detector_score, box|None).
+    """Single-face embedding. Returns (vector|None, detector_score, box|None).
 
     box is (x, y, w, h) of the best detection for quality gating.
     """
     h, w = img_bgr.shape[:2]
     det.setInputSize((w, h))
+    det.setScoreThreshold(float(min_score))
     _, faces = det.detect(img_bgr)
     if faces is None or len(faces) == 0:
         return None, 0.0, None
     best = max(faces, key=lambda f: float(f[-1]))
     score = float(best[-1])
     box = tuple(float(v) for v in best[:4])
+    if len(faces) != 1:
+        return None, score, box
     if score < min_score:
         return None, score, box
     aligned = rec.alignCrop(img_bgr, best)
     feat = rec.feature(aligned)
     v = np.asarray(feat, dtype=np.float64).flatten()
-    v /= (np.linalg.norm(v) + 1e-12)
+    norm = np.linalg.norm(v)
+    if v.shape != (128,) or not np.isfinite(v).all() or norm < 1e-12:
+        raise ValueError("invalid SFace embedding")
+    v /= norm
     return v, score, box
 
 
 def similarity(a, b):
-    return float(np.dot(a, b))  # cosine, both L2-normalised
+    value = float(np.dot(a, b))
+    if not np.isfinite(value):
+        raise ValueError("non-finite similarity")
+    return value

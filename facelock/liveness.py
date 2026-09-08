@@ -1,194 +1,145 @@
-"""M2 liveness: strobe challenge-response, IR texture, fusion scoring.
+"""Active illumination checks, not a validated presentation-attack detector.
 
-Attack model (both classes, per plan):
-- photo/print: flat texture, no per-pixel temporal noise, follows strobe
-  only via ambient reflection (weak), no correlation structure
-- screencast replay: RGB emissive (bright screen), IR dark (screens emit
-  almost no NIR), texture shows LCD pixel-grid + compression noise
-
-Challenge: per-attempt random strobe pattern; attacker cannot know which
-frames will be lit, so a static print/screen cannot selectively brighten.
-We verify (a) lit frames are lit, (b) dark frames are dark, in IR.
+Paper and displays can reflect IR and acquire sensor noise too. Correlation
+establishes a response to this attempt's light, not that a person is live.
 """
 import hashlib
+import math
 import os
+from pathlib import Path
 import time
 
-try:
-    import numpy as np
-except ImportError:  # stdlib-only unit tests
-    np = None
-
-from .ir_capture import set_led
-
-STROBE_WINDOW_S = 1.28  # PMIC flash_timeout on this board
+import numpy as np
 
 
 def make_nonce():
-    """Per-attempt challenge seed."""
-    return os.urandom(16).hex()
+    return os.urandom(32).hex()
 
 
-def challenge_pattern(nonce, n_frames):
-    """Deterministic pseudo-random on/off sequence for the strobe.
-
-    We modulate within one 1.28s PMIC window: pattern alternates bursts.
-    With n_frames ~8 at ~30fps the sequence covers ~0.27s of the window.
-    """
-    dig = hashlib.sha256(nonce.encode()).digest()
-    # bits -> on/off for successive frame indices; ensure at least 2 lit
-    bits = [bool(dig[i % len(dig)] >> (i % 8) & 1) for i in range(n_frames)]
-    lit = sum(bits)
-    if lit < 2:
-        # force two lit frames at spread positions (deterministic from nonce)
-        pos = [int.from_bytes(dig[0:2], "big") % n_frames,
-               int.from_bytes(dig[2:4], "big") % n_frames]
-        for p in pos:
-            bits[p] = True
-    return bits
+def challenge_pattern(nonce, n_frames=8):
+    """Balanced nonce-derived phases, with at least three of each state."""
+    if type(n_frames) is not int or not 6 <= n_frames <= 32 or n_frames % 2:
+        raise ValueError("challenge phases must be even and between 6 and 32")
+    order = sorted(range(n_frames), key=lambda i: hashlib.sha256(
+        f"{nonce}:{i}".encode()).digest())
+    lit = set(order[:n_frames // 2])
+    return [int(i in lit) for i in range(n_frames)]
 
 
-class StrobeDriver:
-    """Drives the flash LED through a challenge pattern while frames stream.
+class TorchDriver:
+    """Checked torch writes; never fires the latched flash channel."""
+    def __init__(self, brightness_path, brightness, strobe_path=None):
+        self.path = Path(brightness_path)
+        self.strobe = Path(strobe_path) if strobe_path else None
+        self.brightness = int(brightness)
 
-    The PMIC strobe latches (0->1 fires, stays until timeout), so the
-    pattern is expressed as: fire strobe at 'on' transitions, and for 'off'
-    stretches use torch=0 + wait. Torch brightness is too weak to matter
-    for capture but forces the strobe channel dark via re-arm.
-    """
+    def __enter__(self):
+        try:
+            maximum = int((self.path.parent / "max_brightness").read_text())
+            if not 1 <= self.brightness <= maximum:
+                raise ValueError(f"torch brightness must be in 1..{maximum}")
+            self.off()
+            return self
+        except BaseException:
+            self.off()
+            raise
 
-    def __init__(self, strobe_path, brightness_path, pattern):
-        self.sp = strobe_path
-        self.bp = brightness_path
-        self.pattern = pattern
-        self.idx = 0
-
-    def on_frame(self, frame_idx):
-        """Apply strobe state for the frame about to be captured."""
-        want = self.pattern[frame_idx % len(self.pattern)]
-        if want:
-            set_led(self.sp, 0)
-            time.sleep(0.02)
-            set_led(self.sp, 1)  # fire within the 1.28s window
-        else:
-            set_led(self.sp, 0)
-        return want
+    def set(self, enabled):
+        self.path.write_text(str(self.brightness if enabled else 0))
 
     def off(self):
-        set_led(self.sp, 0)
-        if self.bp:
-            set_led(self.bp, 0)
+        error = None
+        for path in (self.strobe, self.path):
+            if path is not None:
+                try:
+                    path.write_text("0")
+                except OSError as exc:
+                    error = exc
+        if error:
+            raise error
+
+    def __exit__(self, *exc):
+        self.off()
 
 
-def _fmean(f):
-    if hasattr(f, "mean"):
+class FlashDriver(TorchDriver):
+    """Use the existing flash current/timeout; re-arm each short lit phase."""
+    def __enter__(self):
+        if self.strobe is None:
+            raise ValueError("flash mode needs ir_led.strobe_path")
         try:
-            return float(f.mean())
-        except Exception:
-            pass
-    return sum(_frame_pixels(f)) / max(len(_frame_pixels(f)), 1)
+            self.off()
+            self.timeout = int((self.strobe.parent / "flash_timeout").read_text()) / 1e6
+            if not 0.2 <= self.timeout <= 2:
+                raise ValueError("flash timeout must be between 0.2 and 2 seconds")
+            self.expires = None
+            return self
+        except BaseException:
+            self.off()
+            raise
+
+    def set(self, enabled):
+        self.off()
+        self.expires = None
+        if enabled:
+            time.sleep(0.05)
+            self.strobe.write_text("1")
+            self.expires = time.monotonic() + self.timeout
+
+    def check(self):
+        if self.expires is not None and time.monotonic() >= self.expires:
+            raise RuntimeError("flash expired before illumination phase completed")
 
 
-def check_challenge(gray_frames, pattern):
-    """Verify lit/dark correlation in the captured IR burst.
+def illumination_driver(led):
+    cls = {"torch": TorchDriver, "flash": FlashDriver}[led["mode"]]
+    return cls(led["path"], led["brightness"], led.get("strobe_path"))
 
-    gray_frames: list of 2-D uint8 arrays (the IR burst), aligned with
-      pattern (same length).
-    Returns (ok, detail) — never raises.
-    """
+
+def check_challenge(gray_frames, pattern, min_gap=8.0, roi=None):
     if len(gray_frames) != len(pattern) or not gray_frames:
-        return False, {"reason": "length-mismatch",
-                       "frames": len(gray_frames), "pattern": len(pattern)}
-    means = [_fmean(f) for f in gray_frames]
+        return False, {"reason": "length-mismatch"}
+    if not math.isfinite(min_gap) or min_gap <= 0:
+        raise ValueError("min_gap must be positive and finite")
+    if any(p not in (0, 1) for p in pattern):
+        return False, {"reason": "invalid-pattern"}
+    means = []
+    for frame in gray_frames:
+        a = np.asarray(frame)
+        if a.ndim != 2:
+            return False, {"reason": "invalid-frame"}
+        if roi is not None:
+            x, y, w, h = roi
+            a = a[y:y + h, x:x + w]
+        if not a.size or not np.isfinite(a).all():
+            return False, {"reason": "invalid-frame"}
+        means.append(float(a.mean()))
     lit = [m for m, p in zip(means, pattern) if p]
     dark = [m for m, p in zip(means, pattern) if not p]
-    detail = {"means": [round(m, 1) for m in means],
+    detail = {"means": [round(m, 2) for m in means],
               "pattern": [int(p) for p in pattern]}
-    if not lit or not dark:
+    if min(len(lit), len(dark)) < 3:
         return False, {**detail, "reason": "pattern-degenerate"}
-    # lit frames must be clearly brighter than dark frames
     gap = min(lit) - max(dark)
-    detail["gap"] = round(gap, 1)
-    if gap < 8.0:  # grayscale levels; tuned on strobe gap ~200 vs ~10
-        return False, {**detail, "reason": "no-strobe-correlation"}
-    return True, detail
-
-
-def _frame_pixels(f):
-    """Return pixel values as a flat list (numpy or list-backed frames)."""
-    if hasattr(f, "ravel"):
-        try:
-            return [float(v) for v in f.ravel()]
-        except Exception:
-            pass
-    if hasattr(f, "tolist"):
-        return [float(v) for v in np.asarray(f).ravel().tolist()]
-    return [float(v) for v in f]  # Frame(list) or any flat iterable
+    ok = gap >= min_gap
+    return ok, {**detail, "gap": round(gap, 2),
+                "reason": "ok" if ok else "no-illumination-correlation"}
 
 
 def temporal_noise(frames_gray):
-    """Per-pixel temporal std across the burst, median-normalised.
-
-    Real sensor: read/shot noise on every frame, plus photon noise under
-    strobe. Prints: near-zero temporal delta. Screens: LCD refresh +
-    codec quantisation artifacts, typically blocky and spatially uniform.
-    Returns (score, detail); score 0..1-ish, higher = more sensor-like.
-    Works with numpy arrays or any indexable 2-D frames.
-    """
+    """Measure equally illuminated frames; do not issue a liveness verdict."""
     if len(frames_gray) < 3:
-        return 0.0, {"reason": "too-few-frames"}
-    pix = [_frame_pixels(f) for f in frames_gray]
-    n = min(len(p) for p in pix)
-    if n == 0:
-        return 0.0, {"reason": "empty-frames"}
-    tstd = []
-    for i in range(n):
-        vals = [p[i] for p in pix]
-        m = sum(vals) / len(vals)
-        var = sum((v - m) ** 2 for v in vals) / len(vals)
-        tstd.append(var ** 0.5)
-    tstd.sort()
-    med = tstd[len(tstd) // 2]
-    bright = [f for f in frames_gray if _fmean(f) > 20.0]  # only lit count
-    if len(bright) < 2:
-        return 0.0, {"reason": "no-lit-pair"}
-    bpix = [_frame_pixels(f) for f in bright]
-    bn = min(len(p) for p in bpix)
-    bstd = []
-    for i in range(bn):
-        vals = [p[i] for p in bpix]
-        m = sum(vals) / len(vals)
-        var = sum((v - m) ** 2 for v in vals) / len(vals)
-        bstd.append(var ** 0.5)
-    bstd.sort()
-    bmed = bstd[len(bstd) // 2]
-    score = 0.0
-    if 0.8 <= bmed <= 30.0:
-        score = 1.0
-    elif 30.0 < bmed <= 60.0:
-        score = 0.5  # noisy screen? partial credit, flag it
-    detail = {"tstd_med": round(med, 2), "bstd_med": round(bmed, 2)}
-    return score, detail
+        return {"reason": "too-few-frames"}
+    a = np.stack(frames_gray).astype(np.float32)
+    if not np.isfinite(a).all():
+        return {"reason": "invalid-frame"}
+    return {"std_median": round(float(np.median(a.std(axis=0))), 2),
+            "frames": len(frames_gray), "use": "diagnostic-only"}
 
 
-
-def fuse(rgb_res, ir_res, weights=None, both_required=True):
-    """Weighted cross-modal fusion instead of OR.
-
-    rgb_res/ir_res: (ok, sim, score) tuples (from verify attempt_dual).
-    Returns (accepted, detail). With both_required=True, a photo attack
-    that passes RGB but fails IR (or vice versa) is rejected.
-    """
-    w = weights or {"rgb": 0.5, "ir": 0.5}
-    sims = {"rgb": rgb_res[1] if rgb_res else 0.0,
-            "ir": ir_res[1] if ir_res else 0.0}
-    oks = {"rgb": bool(rgb_res[0]) if rgb_res else False,
-           "ir": bool(ir_res[0]) if ir_res else False}
-    fused = w["rgb"] * sims["rgb"] + w["ir"] * sims["ir"]
-    detail = {"sims": {k: round(v, 2) for k, v in sims.items()},
-              "fused": round(fused, 2), "oks": oks}
-    if both_required:
-        accepted = oks["rgb"] and oks["ir"] and fused >= 0.36
-    else:
-        accepted = (oks["rgb"] or oks["ir"]) and fused >= 0.30
-    return accepted, {**detail, "accepted": accepted}
+def fuse(results, required_sensors):
+    required = tuple(required_sensors)
+    if not required or len(required) != len(set(required)) or set(required) - {"rgb", "ir"}:
+        raise ValueError("invalid required sensors")
+    accepted = all(results.get(s, {}).get("match") is True for s in required)
+    return accepted, {"required": list(required), "accepted": accepted}

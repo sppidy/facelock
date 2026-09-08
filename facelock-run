@@ -1,27 +1,12 @@
 #!/bin/sh
-# facelock-run: execute face-unlock entry points under the staged dual
-# camera stack when present, else plain system python (legacy paths).
-# Safe for PAM: never fails itself, execs python either way.
-STAGED="${FACELOCK_STAGED:-}"
-if [ -n "$STAGED" ] && [ -f "$STAGED/build/src/libcamera/libcamera.so.0.7.1" ]; then
-    LD_LIBRARY_PATH="$STAGED/build/src/libcamera${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    export LD_LIBRARY_PATH
-    PYTHONPATH="$STAGED/build/src/py${PYTHONPATH:+:$PYTHONPATH}"
-    export PYTHONPATH
-    LIBCAMERA_IPA_MODULE_PATH="$STAGED/build/src/ipa"
-    export LIBCAMERA_IPA_MODULE_PATH
-    XDG_CONFIG_HOME="$STAGED/opt-in"
-    export XDG_CONFIG_HOME
-    FACELOCK_STAGED="$STAGED"
-    export FACELOCK_STAGED
-fi
-exec /usr/bin/python3 -c "
-import sys, os
-staged = os.environ.get('FACELOCK_STAGED', '')
-if staged:
-    pp = staged + '/build/src/py'
-    sys.path[:] = [p for p in sys.path if 'site-packages/libcamera' not in p]
-    sys.path.insert(0, pp)
-import runpy
-runpy.run_path(sys.argv.pop(1), run_name='__main__')
-" "$@"
+# Clear inherited loader/Python/camera settings before starting the supervisor.
+# FACELOCK_STAGED is a developer opt-in and is ignored for privileged runs.
+set -eu
+SELF=$(/usr/bin/readlink -f "$0")
+DIR=${SELF%/*}
+LIBDIR="$DIR/../lib/facelock"
+if [ -f "$DIR/runner.py" ]; then LIBDIR="$DIR"; fi
+exec /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 \
+  PAM_USER="${PAM_USER:-}" PAM_TYPE="${PAM_TYPE:-}" PAM_SERVICE="${PAM_SERVICE:-}" \
+  SUDO_USER="${SUDO_USER:-}" FACELOCK_STAGED="${FACELOCK_STAGED:-}" \
+  /usr/bin/python3 -I "$LIBDIR/runner.py" "$@"
