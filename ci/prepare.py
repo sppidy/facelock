@@ -19,6 +19,20 @@ def stable_push(event_name, ref, before, after):
     return changed.strip() == b'PKGBUILD'
 
 
+def release_history(stable, sha):
+    prefix = 'v' if stable else 'nightly-'
+    tags = subprocess.check_output(
+        ['git', 'tag', '--merged', sha, '--sort=-creatordate'], text=True).splitlines()
+    previous = next((tag for tag in tags if tag.startswith(prefix)), None)
+    revision = f'{previous}..{sha}' if previous else sha
+    fields = subprocess.check_output(
+        ['git', 'log', '-z', '--reverse', '--format=%H%x00%s', revision],
+        text=True).split('\0')
+    changes = [{'commit': fields[i], 'subject': fields[i + 1]}
+               for i in range(0, len(fields) - 1, 2) if fields[i]]
+    return previous, changes
+
+
 def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     sha = os.environ['GITHUB_SHA']
@@ -33,12 +47,15 @@ def main():
     if not stable:
         version += f'.r{run}.a{attempt}.g{sha[:12]}'
     tag = f'v{version}-{release}' if stable else f'nightly-{version}-{release}'
+    package_name = 'facelock' if stable else 'facelock-nightly'
+    previous_tag, changes = release_history(stable, sha)
     dist = Path('dist')
     dist.mkdir()  # Refuse stale output from another build.
     archive = dist / 'facelock-source.tar'
     subprocess.run(['git', 'archive', '--format=tar', '--prefix=facelock/',
                     '-o', str(archive), sha], check=True)
     metadata = dict(commit=sha, version=version, pkgrel=release, tag=tag, stable=stable,
+                    package_name=package_name, previous_tag=previous_tag, changes=changes,
                     source_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
                     repository=os.environ['GITHUB_REPOSITORY'], run_id=run, attempt=attempt,
                     run_url=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run}",

@@ -2,7 +2,8 @@
 # AUR uses the immutable packaging release tag; CI supplies a checksummed
 # archive of the exact checkout, without fetching an older upstream tag.
 _giturl="https://github.com/sppidy/facelock.git"
-pkgname=facelock
+pkgname=${FACELOCK_PACKAGE_NAME:-facelock}
+_source_dir=facelock
 pkgver=0.3.0
 pkgrel=2
 _gittag="v${pkgver}-${pkgrel}"
@@ -22,6 +23,12 @@ optdepends=('python-libcamera: optional system runtime for other camera profiles
             'polkit: authorize enrollment from the desktop')
 makedepends=('git' 'tar' 'meson' 'ninja' 'pkgconf' 'python-jinja' 'python-yaml' 'python-ply' 'pybind11' 'patchelf' 'openssl')
 backup=('etc/facelock/config.yaml')
+if [[ $pkgname == facelock-nightly ]]; then
+  provides=(facelock)
+  conflicts=(facelock)
+else
+  conflicts=(facelock-nightly)
+fi
 options=('!debug') # Keep private runtime debug symbols out of a separate package.
 if [[ -n ${FACELOCK_SOURCE_ARCHIVE:-} ]]; then
   : "${FACELOCK_SOURCE_SHA256:?local source requires SHA256}"
@@ -35,13 +42,13 @@ fi
 install=facelock.install
 
 build() {
-  cd "$pkgname"
+  cd "$_source_dir"
   python3 -c 'import sys; assert sys.version_info[:2] == (3, 14), "Update the Arch Python ABI bounds before rebuilding"'
   python3 camera-runtime/build.py --work "$srcdir/camera-build" --output "$srcdir/camera-runtime"
 }
 
 package() {
-  cd "$pkgname"
+  cd "$_source_dir"
   test -f "$srcdir/camera-runtime/manifest.json"
   install -dm755 "$pkgdir/usr/lib/facelock"
   cp -a "$srcdir/camera-runtime" "$pkgdir/usr/lib/facelock/camera"

@@ -7,8 +7,9 @@ import tempfile
 import tarfile
 import unittest
 
-from ci.prepare import stable_push
+from ci.prepare import release_history, stable_push
 from ci.inspect import inspect_payload
+from ci.publish import release_assets, release_notes
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -28,6 +29,8 @@ class PackagingTests(unittest.TestCase):
             first = commit('PKGBUILD', 'one')
             second = commit('PKGBUILD', 'two')
             third = commit('README.md', 'docs')
+            git('tag', 'v0.1.0-1', first)
+            git('tag', 'nightly-0.1.0-1', second)
             previous = Path.cwd()
             try:
                 os.chdir(directory)
@@ -40,6 +43,12 @@ class PackagingTests(unittest.TestCase):
                 self.assertTrue(stable_push('push', 'refs/heads/main', '0' * 40, third))
                 reverted = commit('PKGBUILD', 'one')
                 self.assertFalse(stable_push('push', 'refs/heads/main', first, reverted))
+                history_previous, changes = release_history(True, third)
+                self.assertEqual(history_previous, 'v0.1.0-1')
+                self.assertEqual([change['commit'] for change in changes], [second, third])
+                history_previous, changes = release_history(False, third)
+                self.assertEqual(history_previous, 'nightly-0.1.0-1')
+                self.assertEqual([change['commit'] for change in changes], [third])
             finally:
                 os.chdir(previous)
 
@@ -50,6 +59,10 @@ class PackagingTests(unittest.TestCase):
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
         self.assertEqual(tag, 'v0.3.0-2')
+        nightly = subprocess.check_output(
+            ['bash', '-c', 'source PKGBUILD; printf "%s|%s|%s" "$pkgname" "${provides[*]}" "${conflicts[*]}"'],
+            cwd=ROOT, text=True, env={**os.environ, 'FACELOCK_PACKAGE_NAME': 'facelock-nightly'})
+        self.assertEqual(nightly, 'facelock-nightly|facelock|facelock')
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
@@ -75,6 +88,22 @@ class PackagingTests(unittest.TestCase):
             with tarfile.open(fileobj=data) as archive:
                 files = inspect_payload(archive)
             self.assertEqual(files['usr/bin/facelock-enroll'], (ROOT / 'facelock-enroll').read_bytes())
+
+    def test_release_notes_and_minimal_assets(self):
+        metadata = {'repository': 'owner/repo', 'previous_tag': 'v1.0.0-1',
+                    'commit': 'b' * 40, 'run_url': 'https://example.test/build',
+                    'changes': [{'commit': 'a' * 40, 'subject': 'fix: Repair camera startup'}]}
+        notes = release_notes(metadata)
+        self.assertIn('Changes since `v1.0.0-1`', notes)
+        self.assertIn('fix: Repair camera startup', notes)
+        self.assertIn('/commit/' + 'a' * 40, notes)
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory)
+            expected = {'facelock_1_arm64.deb', 'facelock-1-aarch64.pkg.tar.zst',
+                        'libcamera-patched-source.tar.gz', 'SHA256SUMS'}
+            for name in expected | {'provenance.json', 'facelock.db'}:
+                (dist / name).touch()
+            self.assertEqual({path.name for path in release_assets(dist)}, expected)
 
 
 if __name__ == '__main__':

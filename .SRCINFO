@@ -38,6 +38,7 @@ pkgbase = facelock
 	optdepends = gtk4: graphical enrollment wizard
 	optdepends = python-gobject: graphical enrollment wizard
 	optdepends = polkit: authorize enrollment from the desktop
+	conflicts = facelock-nightly
 	options = !debug
 	backup = etc/facelock/config.yaml
 	source = git+https://github.com/sppidy/facelock.git#tag=v0.3.0-2

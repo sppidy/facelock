@@ -1,4 +1,7 @@
 #!/usr/bin/make -f
+PACKAGE := $(or $(FACELOCK_DEB_PACKAGE),facelock)
+DESTDIR := debian/$(PACKAGE)
+
 %:
 	dh $@ --with python3
 
@@ -10,53 +13,53 @@ override_dh_installsystemd:
 
 override_dh_fixperms:
 	dh_fixperms
-	chmod 700 debian/facelock/var/lib/facelock
+	chmod 700 $(DESTDIR)/var/lib/facelock
 
 override_dh_auto_clean:
 	rm -rf debian/camera-build debian/camera-runtime debian/libcamera-patched-source.tar.gz
 
 override_dh_auto_install:
-	install -dm755 debian/facelock/usr/lib/facelock
-	cp -a debian/camera-runtime debian/facelock/usr/lib/facelock/camera
-	install -Dm755 facelock-run debian/facelock/usr/bin/facelock-run
-	install -Dm755 facelock-detect debian/facelock/usr/bin/facelock-detect
-	install -Dm755 facelock-pam-enable debian/facelock/usr/bin/facelock-pam-enable
-	install -Dm755 facelock-feedback debian/facelock/usr/bin/facelock-feedback
-	install -Dm755 facelock-auth debian/facelock/usr/bin/facelock-auth
-	install -Dm644 systemd/facelock-auth.socket debian/facelock/usr/lib/systemd/system/facelock-auth.socket
-	install -Dm644 systemd/facelock-auth@.service debian/facelock/usr/lib/systemd/system/facelock-auth@.service
-	install -Dm755 facelock-enroll debian/facelock/usr/bin/facelock-enroll
-	install -Dm644 systemd/facelock-feedback.service debian/facelock/usr/lib/systemd/user/facelock-feedback.service
-	install -Dm644 desktop/io.github.sppidy.Facelock.desktop debian/facelock/usr/share/applications/io.github.sppidy.Facelock.desktop
-	install -Dm755 setup_models.py debian/facelock/usr/lib/facelock/setup_models.py
-	install -Dm755 enroll.py debian/facelock/usr/lib/facelock/enroll.py
-	install -Dm755 runner.py debian/facelock/usr/lib/facelock/runner.py
-	install -Dm755 diagnose.py debian/facelock/usr/lib/facelock/diagnose.py
-	install -Dm755 calibrate.py debian/facelock/usr/lib/facelock/calibrate.py
-	install -Dm755 verify.py debian/facelock/usr/lib/facelock/verify.py
-	install -Dm755 pam_check.sh debian/facelock/usr/lib/facelock/pam_check.sh
-	install -Dm644 facelock/*.py -t debian/facelock/usr/lib/facelock/facelock/
-	install -Dm644 profiles/*.yaml -t debian/facelock/usr/share/facelock/profiles/
-	install -Dm644 tuning/simple/*.yaml -t debian/facelock/usr/share/facelock/tuning/simple/
-	install -Dm644 config.yaml debian/facelock/usr/share/doc/facelock/config.example.yaml
-	install -Dm644 README.md debian/facelock/usr/share/doc/facelock/README.md
-	install -Dm644 99-facelock-ir-led.rules debian/facelock/usr/lib/udev/rules.d/99-facelock-ir-led.rules
-	install -Dm644 config.yaml debian/facelock/etc/facelock/config.yaml
-	install -dm700 debian/facelock/var/lib/facelock
+	install -dm755 $(DESTDIR)/usr/lib/facelock
+	cp -a debian/camera-runtime $(DESTDIR)/usr/lib/facelock/camera
+	install -Dm755 facelock-run $(DESTDIR)/usr/bin/facelock-run
+	install -Dm755 facelock-detect $(DESTDIR)/usr/bin/facelock-detect
+	install -Dm755 facelock-pam-enable $(DESTDIR)/usr/bin/facelock-pam-enable
+	install -Dm755 facelock-feedback $(DESTDIR)/usr/bin/facelock-feedback
+	install -Dm755 facelock-auth $(DESTDIR)/usr/bin/facelock-auth
+	install -Dm644 systemd/facelock-auth.socket $(DESTDIR)/usr/lib/systemd/system/facelock-auth.socket
+	install -Dm644 systemd/facelock-auth@.service $(DESTDIR)/usr/lib/systemd/system/facelock-auth@.service
+	install -Dm755 facelock-enroll $(DESTDIR)/usr/bin/facelock-enroll
+	install -Dm644 systemd/facelock-feedback.service $(DESTDIR)/usr/lib/systemd/user/facelock-feedback.service
+	install -Dm644 desktop/io.github.sppidy.Facelock.desktop $(DESTDIR)/usr/share/applications/io.github.sppidy.Facelock.desktop
+	install -Dm755 setup_models.py $(DESTDIR)/usr/lib/facelock/setup_models.py
+	install -Dm755 enroll.py $(DESTDIR)/usr/lib/facelock/enroll.py
+	install -Dm755 runner.py $(DESTDIR)/usr/lib/facelock/runner.py
+	install -Dm755 diagnose.py $(DESTDIR)/usr/lib/facelock/diagnose.py
+	install -Dm755 calibrate.py $(DESTDIR)/usr/lib/facelock/calibrate.py
+	install -Dm755 verify.py $(DESTDIR)/usr/lib/facelock/verify.py
+	install -Dm755 pam_check.sh $(DESTDIR)/usr/lib/facelock/pam_check.sh
+	install -Dm644 facelock/*.py -t $(DESTDIR)/usr/lib/facelock/facelock/
+	install -Dm644 profiles/*.yaml -t $(DESTDIR)/usr/share/facelock/profiles/
+	install -Dm644 tuning/simple/*.yaml -t $(DESTDIR)/usr/share/facelock/tuning/simple/
+	install -Dm644 config.yaml $(DESTDIR)/usr/share/doc/facelock/config.example.yaml
+	install -Dm644 README.md $(DESTDIR)/usr/share/doc/facelock/README.md
+	install -Dm644 99-facelock-ir-led.rules $(DESTDIR)/usr/lib/udev/rules.d/99-facelock-ir-led.rules
+	install -Dm644 config.yaml $(DESTDIR)/etc/facelock/config.yaml
+	install -dm700 $(DESTDIR)/var/lib/facelock
 
 override_dh_shlibdeps:
-	dh_shlibdeps -l$(CURDIR)/debian/facelock/usr/lib/facelock/camera/build/src/libcamera:$(CURDIR)/debian/facelock/usr/lib/facelock/camera/build/src/libcamera/base
+	dh_shlibdeps -l$(CURDIR)/$(DESTDIR)/usr/lib/facelock/camera/build/src/libcamera:$(CURDIR)/$(DESTDIR)/usr/lib/facelock/camera/build/src/libcamera/base
 
 override_dh_makeshlibs:
 	# Private libraries are not a system ABI.
 
 override_dh_python3:
 	dh_python3 --no-ext-rename --no-shebang-rewrite /usr/lib/facelock
-	python3 -c 'import sys; v=sys.version_info; print(f"facelock:Python=python3 (>= {v.major}.{v.minor}~), python3 (<< {v.major}.{v.minor+1})")' >> debian/facelock.substvars
+	python3 -c 'import sys; v=sys.version_info; print(f"facelock:Python=python3 (>= {v.major}.{v.minor}~), python3 (<< {v.major}.{v.minor+1})")' >> $(DESTDIR).substvars
 
 override_dh_strip:
 	dh_strip --no-automatic-dbgsym
 
 override_dh_builddeb:
-	python3 -c 'import runpy; runpy.run_path("camera-runtime/build.py")["smoke"]("debian/facelock/usr/lib/facelock/camera")'
+	python3 -c 'import runpy; runpy.run_path("camera-runtime/build.py")["smoke"]("$(DESTDIR)/usr/lib/facelock/camera")'
 	dh_builddeb

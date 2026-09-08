@@ -86,6 +86,8 @@ def main():
     dist = Path(sys.argv[1])
     m = json.loads((dist / 'provenance.json').read_text())
     version = f"{m['version']}-{m['pkgrel']}"
+    package_name = m['package_name']
+    assert package_name == ('facelock' if m['stable'] else 'facelock-nightly')
     debs = list(dist.glob('*.deb'))
     arches = list(dist.glob('*.pkg.tar.zst'))
     assert len(debs) == len(arches) == 1
@@ -109,11 +111,20 @@ def main():
     entry = next((n for n in names if n.endswith('/desc')), None)
     assert entry is not None, 'no desc entry in repo db'
     desc = db.extractfile(db.getmember('./' + entry if './' + entry in db.getnames() else entry)).read().decode()
-    assert f'facelock-{version}-aarch64.pkg.tar.zst' in desc, desc[:400]
+    assert f'{package_name}-{version}-aarch64.pkg.tar.zst' in desc, desc[:400]
     assert '%FILENAME%' in desc and '%VERSION%' in desc
     metadata = subprocess.check_output(['dpkg-deb', '-f', str(debs[0]),
                                        'Package', 'Version', 'Architecture'], text=True)
-    assert metadata == f'Package: facelock\nVersion: {version}\nArchitecture: arm64\n', metadata
+    assert metadata == f'Package: {package_name}\nVersion: {version}\nArchitecture: arm64\n', metadata
+    deb_provides = subprocess.check_output(
+        ['dpkg-deb', '-f', str(debs[0]), '${Provides}'], text=True)
+    deb_conflicts = subprocess.check_output(
+        ['dpkg-deb', '-f', str(debs[0]), '${Conflicts}'], text=True)
+    if package_name == 'facelock-nightly':
+        assert deb_provides == 'facelock' and deb_conflicts == 'facelock'
+    else:
+        assert package_name == 'facelock'
+        assert not deb_provides and deb_conflicts == 'facelock-nightly'
     payload = subprocess.check_output(['dpkg-deb', '--fsys-tarfile', str(debs[0])])
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
         debfiles = inspect_payload(archive, deb=True)
@@ -127,9 +138,13 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
         archfiles = inspect_payload(archive)
     info = archfiles['.PKGINFO'].decode()
-    for field in ['pkgname = facelock', f'pkgver = {version}', 'arch = aarch64',
+    for field in [f'pkgname = {package_name}', f'pkgver = {version}', 'arch = aarch64',
                   'backup = etc/facelock/config.yaml', 'depend = python']:
         assert field in info.splitlines(), field
+    relations = (['provides = facelock', 'conflict = facelock']
+                 if package_name == 'facelock-nightly' else ['conflict = facelock-nightly'])
+    for relation in relations:
+        assert relation in info.splitlines(), relation
     for name in debfiles.keys() & archfiles.keys():
         if not name.startswith('usr/lib/facelock/camera/'):
             assert debfiles[name] == archfiles[name], f'Payload differs: {name}'

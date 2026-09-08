@@ -11,5 +11,5 @@ cp /out/facelock-source.tar /out/provenance.json /build/
 chown builder:builder /build/*
 runuser -u builder -- bash /checkout/ci/build-arch-user.sh
 cp /build/*.pkg.tar.zst /out/
-cp /build/src/libcamera-patched-source.tar.gz /out/libcamera-arch-source.tar.gz
+cp /build/src/libcamera-patched-source.tar.gz /out/libcamera-patched-source.tar.gz
 pacman -Q > /out/arch-build-packages.txt

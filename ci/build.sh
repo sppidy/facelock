@@ -15,7 +15,6 @@ cp /checkout/ci/build-user.sh /build/
 chown builder:builder /build/*
 runuser -u builder -- bash /build/build-user.sh
 cp /build/*.deb /out/
-cp /build/deb/facelock/debian/libcamera-patched-source.tar.gz /out/libcamera-debian-source.tar.gz
 set -x
 repo_work=/repo
 rm -rf "$repo_work" && install -d -o builder -g builder "$repo_work"
@@ -28,5 +27,6 @@ ls /out/facelock.db* /out/facelock.files*
 python3 /checkout/ci/inspect.py /out
 dpkg-query -W > /out/build-packages.txt
 cd /out
-sha256sum -- * > SHA256SUMS
+release_files=( *.deb *.pkg.tar.zst libcamera-patched-source.tar.gz )
+sha256sum -- "${release_files[@]}" > SHA256SUMS
 sha256sum -c SHA256SUMS

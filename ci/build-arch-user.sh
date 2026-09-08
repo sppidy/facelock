@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd /build
-readarray -t metadata < <(python3 -c 'import json; m=json.load(open("provenance.json")); print("\n".join(m[k] for k in ("version", "source_sha256", "source_date_epoch")))')
+readarray -t metadata < <(python3 -c 'import json; m=json.load(open("provenance.json")); print("\n".join(m[k] for k in ("version", "source_sha256", "source_date_epoch", "package_name")))')
 export FACELOCK_PACKAGE_VERSION="${metadata[0]}" FACELOCK_SOURCE_SHA256="${metadata[1]}" SOURCE_DATE_EPOCH="${metadata[2]}"
+export FACELOCK_PACKAGE_NAME="${metadata[3]}"
+[[ $FACELOCK_PACKAGE_NAME == facelock || $FACELOCK_PACKAGE_NAME == facelock-nightly ]]
 export FACELOCK_SOURCE_ARCHIVE=facelock-source.tar
 printf '%s  facelock-source.tar\n' "$FACELOCK_SOURCE_SHA256" | sha256sum -c -
 tar -xf facelock-source.tar

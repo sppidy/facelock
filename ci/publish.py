@@ -11,6 +11,32 @@ def gh(*args):
     return subprocess.check_output(['gh', *args], text=True).strip()
 
 
+def release_notes(metadata):
+    repo_url = f"https://github.com/{metadata['repository']}"
+    previous = metadata.get('previous_tag')
+    heading = f"## Changes since `{previous}`" if previous else '## Changes'
+    changes = metadata.get('changes', [])
+    lines = [heading, '']
+    if changes:
+        lines.extend(f"- [`{change['commit'][:7]}`]({repo_url}/commit/{change['commit']}) {change['subject']}"
+                     for change in changes)
+    else:
+        lines.append('No source changes since the previous release.')
+    lines.extend(['', '## Build details', '',
+                  f"- Commit: [`{metadata['commit'][:12]}`]({repo_url}/commit/{metadata['commit']})",
+                  f"- [Native ARM64 package build]({metadata['run_url']})",
+                  '- Debian trixie and Arch Linux ARM each compile their own private patched libcamera runtime.',
+                  '- PAM activation remains manual. Keep password login available while testing.'])
+    return '\n'.join(lines)
+
+
+def release_assets(dist):
+    packages = sorted(dist.glob('*.deb')) + sorted(dist.glob('*.pkg.tar.zst'))
+    assets = packages + [dist / 'libcamera-patched-source.tar.gz', dist / 'SHA256SUMS']
+    assert len(packages) == 2 and all(path.is_file() for path in assets), assets
+    return assets
+
+
 def main():
     dist = Path('dist')
     metadata = json.loads((dist / 'provenance.json').read_text())
@@ -25,21 +51,18 @@ def main():
     refs = json.loads(gh('api', f'repos/{os.environ["GH_REPO"]}/git/matching-refs/tags/{tag}'))
     if any(ref['ref'] == f'refs/tags/{tag}' for ref in refs):
         raise SystemExit(f'Refusing existing tag {tag}; bump pkgrel for a new stable release.')
-    notes = (f"Commit: {metadata['commit']}\n\nBuild: {metadata['run_url']}\n\n"
-             'Native ARM64 builds for Debian trixie and Arch Linux ARM, each with a private patched libcamera. '
-             'SHA256SUMS covers packages, source archive and build provenance. '
-             'Packaging checks only, not hardware authentication certification. '
-             'PAM activation is manual; retain password login and test in a second session.')
+    notes = release_notes(metadata)
     args = ['release', 'create', tag, '--target', metadata['commit'], '--draft',
             '--title', f'Facelock {tag}', '--notes', notes]
     if not stable:
         args.append('--prerelease')
-    gh(*args, *(str(p) for p in sorted(dist.iterdir())))
+    assets = release_assets(dist)
+    gh(*args, *(str(p) for p in assets))
     with tempfile.TemporaryDirectory() as temp:
         gh('release', 'download', tag, '--dir', temp)
         remote = Path(temp)
-        assert {p.name for p in remote.iterdir()} == {p.name for p in dist.iterdir()}
-        for local in dist.iterdir():
+        assert {p.name for p in remote.iterdir()} == {p.name for p in assets}
+        for local in assets:
             assert hashlib.sha256(local.read_bytes()).digest() == hashlib.sha256(
                 (remote / local.name).read_bytes()).digest(), local.name
     gh('release', 'edit', tag, '--draft=false', '--latest=' + str(stable).lower())
