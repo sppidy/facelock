@@ -2,7 +2,7 @@
 set -euo pipefail
 pacman-key --init
 pacman-key --populate archlinuxarm
-pacman -Syu --noconfirm --needed base-devel git python python-numpy python-opencv \
+pacman -Syu --disable-sandbox --noconfirm --needed base-devel git python python-numpy python-opencv \
  python-yaml python-jinja python-ply pybind11 meson ninja patchelf \
  libyaml gnutls libevent systemd-libs openssl tar zstd
 useradd -m builder
