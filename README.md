@@ -59,13 +59,11 @@ accordingly. Add `--pam` only when you want the installer to enable PAM.
 
 ## A14 camera runtime
 
-Concurrent RGB and IR capture needs the patched X1P CAMSS mapping and
-libcamera's `prefer_disjoint_routes` allocator. Stock libcamera alone is not
-enough. The routing patches currently live in the parent A14 research tree:
-`research/x1p-camss-normal-world-mapping.patch` and
-`research/x1p-libcamera-disjoint-routes.patch`.
+The A14 needs additional kernel and libcamera patches for concurrent RGB/IR
+capture. The patches and application instructions are included in
+[`patches/`](patches/README.md).
 
-The [imaging backport](tools/camera-patches/README.md) covers the CPU pipeline
+The [imaging backport](patches/README.md#cpu-imaging-backport) provides the CPU pipeline
 fixes needed by the included OV02C10 tuning. The A14 profile captures the full
 1920×1080 view and resizes it to 640×360; requesting a smaller image directly
 from this SoftISP build crops the view instead.
