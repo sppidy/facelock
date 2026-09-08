@@ -1,6 +1,11 @@
 # Explicit dual-camera policy. Select zenbook-a14-ir.yaml for IR-only use.
 auth:
   required_sensors: [rgb, ir]
+enrollment:
+  max_bursts: 5  # collect three usable samples, retrying rejected bursts
+  timeout_sec: 180
+feedback:
+  greeter_user: ''  # optional greetd UI account with its feedback user service running
 cameras:
   rgb: /base/soc@0/cci@ac16000/i2c-bus@1/camera@36
   ir: /base/soc@0/cci@ac15000/i2c-bus@0/camera@24
@@ -50,3 +55,8 @@ runtime:
   # Its .so libraries and matching Python binding must have the same ABI.
   stack: ''
   tuning: /usr/share/facelock/tuning
+
+# Experimental A14 RGB/IR stereo; calibrate this specific camera pair first.
+depth:
+  enabled: false
+  calibration: ''  # root-owned mode-0600 JSON, e.g. /etc/facelock/stereo.json

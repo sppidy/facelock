@@ -1,7 +1,7 @@
 """Shared enrollment/verification acquisition with explicit illumination phases."""
 from contextlib import nullcontext
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 
 import cv2
@@ -16,6 +16,8 @@ class Burst:
     ir_frames: list
     pattern: list
     stats: dict
+    depth_frames: list = field(default_factory=list)
+    stereo_pairs: list = field(default_factory=list)
 
 
 def fit_frame(image, width, height):
@@ -38,6 +40,7 @@ class PhaseCollector:
         self.clock = clock
         self.index, self.seen, self.kept = 0, 0, 0
         self.frames, self.flags, self.lit = [], [], []
+        self.last_lit = None
         self.last_timestamp = 0
         self.last_sequence = -1
         self._switch()
@@ -66,6 +69,7 @@ class PhaseCollector:
         self.flags.append(lit)
         if lit:
             self.lit.append(frame.image)
+            self.last_lit = frame
         self.kept += 1
         if self.kept == self.samples_per_phase:
             self.index += 1
@@ -73,9 +77,18 @@ class PhaseCollector:
                 self._switch()
 
 
-def capture(cfg, session_factory=CameraSession, driver_factory=illumination_driver):
+def capture(cfg, session_factory=CameraSession, driver_factory=illumination_driver,
+            collect_stereo=False):
     required = cfg["auth"]["required_sensors"]
     mode = cfg["capture"]["mode"]
+    pairs = reconstruction = None
+    if cfg["depth"]["enabled"] or collect_stereo:
+        from .stereo import PairCollector, Reconstruction
+        if mode != "dual-pycamera" or set(required) != {"rgb", "ir"}:
+            raise ValueError("stereo needs concurrent rgb+ir capture")
+        pairs = PairCollector(cfg["depth"]["max_skew_ms"])
+        if cfg["depth"]["enabled"]:
+            reconstruction = Reconstruction(cfg)
     if mode == "sequential" and len(required) > 1:
         # Explicit choice, never entered as an error fallback.
         deadline = time.monotonic() + cfg["capture"]["timeout_sec"]
@@ -132,11 +145,15 @@ def capture(cfg, session_factory=CameraSession, driver_factory=illumination_driv
                         # a scaler. Capture the native view, resize only here.
                         image = fit_frame(frame.image, cfg["capture"]["width"],
                                           cfg["capture"]["height"])
+                        if pairs is not None:
+                            pairs.add_rgb(frame, image)
                         images[name] = (images[name] + [image])[-3:]
                         st["sensor_size"] = list(frame.image.shape[1::-1])
                         st["image_size"] = list(image.shape[1::-1])
                     if not warmup and collector is not None and name == "ir":
                         collector.add(frame)
+                        if pairs is not None and collector.last_lit is frame:
+                            pairs.add_ir(frame)
                 if warmup:
                     elapsed = time.monotonic() - warmup_start
                     enough = all(s["frames"] >= d["settle"]["min_frames"] for s in stats.values())
@@ -156,5 +173,15 @@ def capture(cfg, session_factory=CameraSession, driver_factory=illumination_driv
     for st in stats.values():
         st.pop("stable_run")
     stats["capture_s"] = round(time.monotonic() - start, 3)
-    return Burst(images, collector.frames if collector else [],
-                 collector.flags if collector else [], stats)
+    result = Burst(images, collector.frames if collector else [],
+                   collector.flags if collector else [], stats)
+    if pairs is not None:
+        result.stereo_pairs = pairs.finish()
+        stats["stereo"] = {"pairs": len(result.stereo_pairs),
+                           "skew_ms": [round(abs(p[2] - p[3]) / 1e6, 3)
+                                       for p in result.stereo_pairs]}
+        if reconstruction is not None:
+            result.images["rgb"] = [p[0] for p in result.stereo_pairs]
+            result.images["ir"] = [p[1] for p in result.stereo_pairs]
+            result.depth_frames = [reconstruction.compute(p[0], p[1]) for p in result.stereo_pairs]
+    return result

@@ -1,0 +1,14 @@
+[Unit]
+Description=Facelock authentication for unprivileged PAM callers
+
+[Socket]
+ListenStream=/run/facelock-auth/auth.sock
+SocketMode=0666
+DirectoryMode=0755
+Accept=yes
+MaxConnections=4
+MaxConnectionsPerSource=1
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

@@ -46,8 +46,12 @@ def account(requested, cfg, pam=False):
     return user
 
 
+class AttemptTerminated(TimeoutError):
+    """Stop the complete attempt, including any enrollment retry loop."""
+
+
 def _terminated(signum, frame):
-    raise TimeoutError("authentication attempt terminated")
+    raise AttemptTerminated("authentication attempt terminated")
 
 
 @contextmanager
@@ -87,3 +91,6 @@ def report(detail, as_json=False):
           (" reason=" + detail["reason"] if detail.get("reason") else ""))
     if detail.get("enrolled"):
         print(f"enrolled {detail['enrolled']}: {', '.join(detail['sensors'])}")
+    if detail.get("reenroll_suggested"):
+        print("Face matched less clearly in three successful attempts. Consider enrolling again.")
+        print("Your existing enrollment has not changed.")

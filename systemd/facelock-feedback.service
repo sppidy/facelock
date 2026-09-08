@@ -1,0 +1,15 @@
+[Unit]
+Description=Facelock unlock feedback
+
+[Service]
+ExecStart=/usr/bin/facelock-feedback --serve
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=facelock
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=default.target

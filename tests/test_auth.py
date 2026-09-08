@@ -52,6 +52,12 @@ class AuthTests(unittest.TestCase):
         self.assertTrue(ok, detail)
         self.assertEqual(detail["fusion"]["required"], ["rgb", "ir"])
 
+    def test_drift_score_uses_unrounded_second_best_required_match(self):
+        with patch("facelock.recognize.similarity", side_effect=[0.95, 0.54999, 0.2, 0.9, 0.8, 0.75]):
+            ok, detail = self.verify()
+        self.assertTrue(ok)
+        self.assertEqual(detail["match_score"], 0.54999)
+
     def test_missing_enrollment_never_opens_camera(self):
         from unittest.mock import Mock
         capture = Mock(side_effect=AssertionError("must not capture"))

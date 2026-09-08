@@ -30,13 +30,22 @@ sudo mkdir -p /usr/local/lib/facelock /usr/local/share/facelock \
 sudo rm -rf /usr/local/lib/facelock/facelock \
   /usr/local/lib/facelock/__pycache__
 sudo cp -r facelock /usr/local/lib/facelock/facelock
-sudo cp enroll.py verify.py runner.py diagnose.py setup_models.py pam_check.sh dual_test.py \
+sudo cp enroll.py verify.py runner.py diagnose.py calibrate.py setup_models.py pam_check.sh dual_test.py \
   ir_check.py /usr/local/lib/facelock/
 sudo sha256sum /usr/local/lib/facelock/verify.py \
   /usr/local/lib/facelock/facelock/dual_capture.py | head -4
-sudo cp facelock-run facelock-detect facelock-pam-enable /usr/local/bin/
+sudo cp facelock-run facelock-detect facelock-pam-enable facelock-feedback facelock-enroll facelock-auth /usr/local/bin/
 sudo chmod 755 /usr/local/bin/facelock-run /usr/local/bin/facelock-detect \
-  /usr/local/bin/facelock-pam-enable
+  /usr/local/bin/facelock-pam-enable /usr/local/bin/facelock-feedback /usr/local/bin/facelock-enroll /usr/local/bin/facelock-auth
+sudo install -Dm644 systemd/facelock-auth.socket /usr/local/lib/systemd/system/facelock-auth.socket
+sed 's|/usr/bin/facelock-auth|/usr/local/bin/facelock-auth|' \
+  systemd/facelock-auth@.service | sudo tee /usr/local/lib/systemd/system/facelock-auth@.service >/dev/null
+sudo systemctl daemon-reload
+sudo install -Dm644 desktop/io.github.sppidy.Facelock.desktop \
+  /usr/local/share/applications/io.github.sppidy.Facelock.desktop
+sudo mkdir -p /usr/local/lib/systemd/user
+sed 's|/usr/bin/facelock-feedback|/usr/local/bin/facelock-feedback|' \
+  systemd/facelock-feedback.service | sudo tee /usr/local/lib/systemd/user/facelock-feedback.service >/dev/null
 sudo mkdir -p /usr/local/share/facelock/profiles /usr/share/facelock/tuning/simple
 sudo cp tuning/simple/*.yaml /usr/share/facelock/tuning/simple/
 sudo cp profiles/*.yaml /usr/local/share/facelock/profiles/
@@ -80,6 +89,6 @@ else
 fi
 
 echo
-echo 'Next: sudo python /usr/local/lib/facelock/enroll.py --sensor both'
+echo 'Next: sudo facelock-run /usr/local/lib/facelock/enroll.py'
 echo 'Then: sudo facelock-run /usr/local/lib/facelock/verify.py'
 echo 'Test login/sudo from a SECOND session before logging out.'

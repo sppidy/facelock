@@ -126,7 +126,9 @@ def main(argv=None):
     try:
         for sig in (signal.SIGTERM, signal.SIGINT):
             old_handlers[sig] = signal.signal(sig, interrupted)
-        return worker.wait(timeout=cfg["pam"]["verify_timeout_sec"])
+        timeout = (cfg["enrollment"]["timeout_sec"] if entry.name == "enroll.py"
+                   else cfg["pam"]["verify_timeout_sec"])
+        return worker.wait(timeout=timeout)
     finally:
         stop_worker(worker)
         for sig, handler in old_handlers.items():

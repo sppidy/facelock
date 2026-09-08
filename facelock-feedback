@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -I
+"""Read or serve Facelock display status for the current user."""
+from pathlib import Path
+import sys
+
+here = Path(__file__).resolve().parent
+sys.path.insert(0, str(here if (here / 'facelock').is_dir() else here.parent / 'lib/facelock'))
+from facelock.feedback import main
+
+main()

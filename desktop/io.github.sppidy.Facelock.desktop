@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Facelock Enrollment
+Comment=Set up face login
+Exec=facelock-enroll
+Icon=camera-photo
+Terminal=false
+Categories=Settings;Security;

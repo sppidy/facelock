@@ -1,0 +1,17 @@
+[Unit]
+Description=Facelock authentication request
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/facelock-auth --serve
+StandardInput=socket
+StandardOutput=null
+StandardError=journal
+User=root
+Group=root
+RuntimeMaxSec=45
+TimeoutStopSec=3
+KillMode=control-group
+NoNewPrivileges=yes
+UMask=0077
+RestrictAddressFamilies=AF_UNIX

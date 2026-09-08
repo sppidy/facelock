@@ -85,6 +85,9 @@ def save(store_dir, user, *, metadata, owner=0, **vectors):
             f.flush()
             os.fsync(f.fileno())
         os.replace(temporary, directory / f"{user}.face")
+        # Explicit re-enrollment clears suggestions even if the saved vectors
+        # are identical. Remove state only after replacement succeeds.
+        (directory / f".{user}.drift.json").unlink(missing_ok=True)
         dfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(dfd)

@@ -3,7 +3,7 @@
 # archive of the exact checkout, without fetching an older upstream tag.
 _giturl="https://github.com/sppidy/facelock.git"
 pkgname=facelock
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 _gittag="v${pkgver}-${pkgrel}"
 pkgdesc="Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops"
@@ -15,7 +15,10 @@ depends=('python' 'python-opencv' 'python-numpy' 'python-yaml'
 optdepends=('python-libcamera: concurrent dual-sensor capture'
             'gst-plugin-libcamera: libcamera cameras over GStreamer'
             'gst-plugins-good: UVC webcams over GStreamer (v4l2src)'
-            'hyprlock: face unlock on the Hyprland lock screen')
+            'hyprlock: face unlock on the Hyprland lock screen'
+            'gtk4: graphical enrollment wizard'
+            'python-gobject: graphical enrollment wizard'
+            'polkit: authorize enrollment from the desktop')
 makedepends=('git' 'tar')
 backup=('etc/facelock/config.yaml')
 options=('!debug') # Python and shell only; no separate debug package.
@@ -35,10 +38,18 @@ package() {
   install -Dm755 facelock-run "$pkgdir/usr/bin/facelock-run"
   install -Dm755 facelock-detect "$pkgdir/usr/bin/facelock-detect"
   install -Dm755 facelock-pam-enable "$pkgdir/usr/bin/facelock-pam-enable"
+  install -Dm755 facelock-feedback "$pkgdir/usr/bin/facelock-feedback"
+  install -Dm755 facelock-auth "$pkgdir/usr/bin/facelock-auth"
+  install -Dm644 systemd/facelock-auth.socket "$pkgdir/usr/lib/systemd/system/facelock-auth.socket"
+  install -Dm644 systemd/facelock-auth@.service "$pkgdir/usr/lib/systemd/system/facelock-auth@.service"
+  install -Dm755 facelock-enroll "$pkgdir/usr/bin/facelock-enroll"
+  install -Dm644 systemd/facelock-feedback.service "$pkgdir/usr/lib/systemd/user/facelock-feedback.service"
+  install -Dm644 desktop/io.github.sppidy.Facelock.desktop "$pkgdir/usr/share/applications/io.github.sppidy.Facelock.desktop"
   install -Dm755 setup_models.py "$pkgdir/usr/lib/facelock/setup_models.py"
   install -Dm755 enroll.py "$pkgdir/usr/lib/facelock/enroll.py"
   install -Dm755 runner.py "$pkgdir/usr/lib/facelock/runner.py"
   install -Dm755 diagnose.py "$pkgdir/usr/lib/facelock/diagnose.py"
+  install -Dm755 calibrate.py "$pkgdir/usr/lib/facelock/calibrate.py"
   install -Dm755 verify.py "$pkgdir/usr/lib/facelock/verify.py"
   install -Dm755 pam_check.sh "$pkgdir/usr/lib/facelock/pam_check.sh"
   install -Dm644 facelock/*.py -t "$pkgdir/usr/lib/facelock/facelock/"

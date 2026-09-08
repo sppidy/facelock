@@ -24,6 +24,11 @@ def inspect_payload(archive, deb=False):
             continue
         allowed = (
             name in {'usr/bin/facelock-run', 'usr/bin/facelock-detect',
+                     'usr/bin/facelock-auth', 'usr/lib/systemd/system/facelock-auth.socket',
+                     'usr/lib/systemd/system/facelock-auth@.service',
+                     'usr/bin/facelock-feedback', 'usr/bin/facelock-enroll',
+                     'usr/lib/systemd/user/facelock-feedback.service',
+                     'usr/share/applications/io.github.sppidy.Facelock.desktop',
                      'usr/bin/facelock-pam-enable', 'etc/facelock/config.yaml',
                      'usr/lib/udev/rules.d/99-facelock-ir-led.rules'}
             or (name.startswith('usr/lib/facelock/') and name.endswith(('.py', '/pam_check.sh')))
@@ -35,10 +40,12 @@ def inspect_payload(archive, deb=False):
         executable = name.startswith('usr/bin/') or name in {
             'usr/lib/facelock/setup_models.py', 'usr/lib/facelock/enroll.py',
             'usr/lib/facelock/verify.py', 'usr/lib/facelock/pam_check.sh',
-            'usr/lib/facelock/runner.py', 'usr/lib/facelock/diagnose.py'}
+            'usr/lib/facelock/runner.py', 'usr/lib/facelock/diagnose.py',
+            'usr/lib/facelock/calibrate.py'}
         assert member.mode == (0o755 if executable else 0o644), (name, oct(member.mode))
         assert member.uid == member.gid == 0, name
-        if name.endswith('.py') or name == 'usr/bin/facelock-detect':
+        if name.endswith('.py') or name in {'usr/bin/facelock-detect', 'usr/bin/facelock-auth',
+                                            'usr/bin/facelock-feedback', 'usr/bin/facelock-enroll'}:
             ast.parse(data, filename=name)
         elif data.startswith(b'#!/bin/sh'):
             subprocess.run(['sh', '-n'], input=data, check=True)
@@ -51,6 +58,17 @@ def inspect_payload(archive, deb=False):
     assert b'/usr/bin/env -i' in files['usr/bin/facelock-run']
     assert b'--pam --quiet' in files['usr/lib/facelock/pam_check.sh']
     assert b'$LIBDIR/../../bin/facelock-run' in files['usr/lib/facelock/pam_check.sh']
+    assert b'--serve' in files['usr/lib/systemd/user/facelock-feedback.service']
+    assert b'Exec=facelock-enroll' in files['usr/share/applications/io.github.sppidy.Facelock.desktop']
+    for required in ('usr/bin/facelock-feedback', 'usr/bin/facelock-enroll',
+                     'usr/bin/facelock-auth', 'usr/lib/facelock/facelock/broker.py',
+                     'usr/lib/systemd/system/facelock-auth.socket',
+                     'usr/lib/systemd/system/facelock-auth@.service',
+                     'usr/lib/facelock/calibrate.py', 'usr/lib/facelock/facelock/stereo.py',
+                     'usr/lib/facelock/facelock/depth.py',
+                     'usr/lib/facelock/facelock/gui.py', 'usr/lib/facelock/facelock/wizard.py',
+                     'usr/lib/facelock/facelock/drift.py', 'usr/lib/facelock/facelock/feedback.py'):
+        assert required in files, required
     return files
 
 

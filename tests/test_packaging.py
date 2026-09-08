@@ -1,11 +1,14 @@
 import ast
+import io
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 
 from ci.prepare import stable_push
+from ci.inspect import inspect_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,15 +44,34 @@ class PackagingTests(unittest.TestCase):
                 os.chdir(previous)
 
     def test_syntax_and_recipe(self):
-        for path in list(ROOT.glob('*.py')) + list((ROOT / 'facelock').glob('*.py')) + list((ROOT / 'ci').glob('*.py')) + [ROOT / 'facelock-detect']:
+        for path in list(ROOT.glob('*.py')) + list((ROOT / 'facelock').glob('*.py')) + list((ROOT / 'ci').glob('*.py')) + [ROOT / name for name in ('facelock-detect', 'facelock-feedback', 'facelock-enroll', 'facelock-auth')]:
             ast.parse(path.read_text(), filename=str(path))
         for path in list(ROOT.glob('*.sh')) + list((ROOT / 'ci').glob('*.sh')) + [ROOT / 'PKGBUILD', ROOT / 'facelock.install', ROOT / 'facelock-run', ROOT / 'facelock-pam-enable', ROOT / 'debian/postinst']:
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
-        self.assertEqual(tag, 'v0.2.0-1')
+        self.assertEqual(tag, 'v0.3.0-1')
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
+
+    def test_arch_install_recipe_contains_ux_commands_and_service(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            (temp / 'facelock').symlink_to(ROOT, target_is_directory=True)
+            payload = temp / 'payload'
+            subprocess.run(['bash', '-ec', 'source "$FACELOCK_RECIPE"; package'], cwd=temp,
+                           env={**os.environ, 'FACELOCK_RECIPE': str(ROOT / 'PKGBUILD'),
+                                'pkgdir': str(payload)}, check=True)
+            data = io.BytesIO()
+            def ownership(info):
+                info.uid = info.gid = 0
+                return info
+            with tarfile.open(fileobj=data, mode='w') as archive:
+                archive.add(payload, arcname='.', filter=ownership)
+            data.seek(0)
+            with tarfile.open(fileobj=data) as archive:
+                files = inspect_payload(archive)
+            self.assertEqual(files['usr/bin/facelock-enroll'], (ROOT / 'facelock-enroll').read_bytes())
 
 
 if __name__ == '__main__':

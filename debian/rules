@@ -5,6 +5,9 @@
 override_dh_auto_build:
 	@echo "nothing to compile (Python + shell)"
 
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
 override_dh_fixperms:
 	dh_fixperms
 	chmod 700 debian/facelock/var/lib/facelock
@@ -13,10 +16,18 @@ override_dh_auto_install:
 	install -Dm755 facelock-run debian/facelock/usr/bin/facelock-run
 	install -Dm755 facelock-detect debian/facelock/usr/bin/facelock-detect
 	install -Dm755 facelock-pam-enable debian/facelock/usr/bin/facelock-pam-enable
+	install -Dm755 facelock-feedback debian/facelock/usr/bin/facelock-feedback
+	install -Dm755 facelock-auth debian/facelock/usr/bin/facelock-auth
+	install -Dm644 systemd/facelock-auth.socket debian/facelock/usr/lib/systemd/system/facelock-auth.socket
+	install -Dm644 systemd/facelock-auth@.service debian/facelock/usr/lib/systemd/system/facelock-auth@.service
+	install -Dm755 facelock-enroll debian/facelock/usr/bin/facelock-enroll
+	install -Dm644 systemd/facelock-feedback.service debian/facelock/usr/lib/systemd/user/facelock-feedback.service
+	install -Dm644 desktop/io.github.sppidy.Facelock.desktop debian/facelock/usr/share/applications/io.github.sppidy.Facelock.desktop
 	install -Dm755 setup_models.py debian/facelock/usr/lib/facelock/setup_models.py
 	install -Dm755 enroll.py debian/facelock/usr/lib/facelock/enroll.py
 	install -Dm755 runner.py debian/facelock/usr/lib/facelock/runner.py
 	install -Dm755 diagnose.py debian/facelock/usr/lib/facelock/diagnose.py
+	install -Dm755 calibrate.py debian/facelock/usr/lib/facelock/calibrate.py
 	install -Dm755 verify.py debian/facelock/usr/lib/facelock/verify.py
 	install -Dm755 pam_check.sh debian/facelock/usr/lib/facelock/pam_check.sh
 	install -Dm644 facelock/*.py -t debian/facelock/usr/lib/facelock/facelock/

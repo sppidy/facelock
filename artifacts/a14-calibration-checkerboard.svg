@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="297mm" height="210mm" viewBox="0 0 297 210">
+<rect width="297" height="210" fill="white"/>
+<rect x="48.5" y="30" width="20" height="20" fill="black"/>
+<rect x="88.5" y="30" width="20" height="20" fill="black"/>
+<rect x="128.5" y="30" width="20" height="20" fill="black"/>
+<rect x="168.5" y="30" width="20" height="20" fill="black"/>
+<rect x="208.5" y="30" width="20" height="20" fill="black"/>
+<rect x="68.5" y="50" width="20" height="20" fill="black"/>
+<rect x="108.5" y="50" width="20" height="20" fill="black"/>
+<rect x="148.5" y="50" width="20" height="20" fill="black"/>
+<rect x="188.5" y="50" width="20" height="20" fill="black"/>
+<rect x="228.5" y="50" width="20" height="20" fill="black"/>
+<rect x="48.5" y="70" width="20" height="20" fill="black"/>
+<rect x="88.5" y="70" width="20" height="20" fill="black"/>
+<rect x="128.5" y="70" width="20" height="20" fill="black"/>
+<rect x="168.5" y="70" width="20" height="20" fill="black"/>
+<rect x="208.5" y="70" width="20" height="20" fill="black"/>
+<rect x="68.5" y="90" width="20" height="20" fill="black"/>
+<rect x="108.5" y="90" width="20" height="20" fill="black"/>
+<rect x="148.5" y="90" width="20" height="20" fill="black"/>
+<rect x="188.5" y="90" width="20" height="20" fill="black"/>
+<rect x="228.5" y="90" width="20" height="20" fill="black"/>
+<rect x="48.5" y="110" width="20" height="20" fill="black"/>
+<rect x="88.5" y="110" width="20" height="20" fill="black"/>
+<rect x="128.5" y="110" width="20" height="20" fill="black"/>
+<rect x="168.5" y="110" width="20" height="20" fill="black"/>
+<rect x="208.5" y="110" width="20" height="20" fill="black"/>
+<rect x="68.5" y="130" width="20" height="20" fill="black"/>
+<rect x="108.5" y="130" width="20" height="20" fill="black"/>
+<rect x="148.5" y="130" width="20" height="20" fill="black"/>
+<rect x="188.5" y="130" width="20" height="20" fill="black"/>
+<rect x="228.5" y="130" width="20" height="20" fill="black"/>
+<rect x="48.5" y="150" width="20" height="20" fill="black"/>
+<rect x="88.5" y="150" width="20" height="20" fill="black"/>
+<rect x="128.5" y="150" width="20" height="20" fill="black"/>
+<rect x="168.5" y="150" width="20" height="20" fill="black"/>
+<rect x="208.5" y="150" width="20" height="20" fill="black"/>
+<g font-family="sans-serif" font-size="4" fill="black">
+<text x="48.5" y="182">A14 stereo calibration: 9 × 6 inner corners; nominal square size 20 mm.</text>
+<text x="48.5" y="189">Print A4 landscape at 100% / actual size. Mount flat. Measure the printed squares.</text>
+</g>
+<path d="M48.5 199h100 M48.5 196v6 M148.5 196v6" stroke="black" stroke-width="0.3"/>
+<text x="154" y="200.5" font-family="sans-serif" font-size="4">100 mm scale check</text>
+</svg>

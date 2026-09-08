@@ -7,6 +7,12 @@ import yaml
 
 DEFAULTS = {
     "auth": {"required_sensors": ["rgb", "ir"]},
+    "enrollment": {"max_bursts": 5, "timeout_sec": 180},
+    "feedback": {"greeter_user": ""},
+    "depth": {"enabled": False, "calibration": "", "min_distance_m": 0.2, "max_distance_m": 1.5,
+              "min_valid_fraction": 0.85, "min_relief_m": 0.012,
+              "max_relief_m": 0.12, "min_protrusion_m": 0.008,
+              "max_skew_ms": 40},
     "capture": {"mode": "dual-pycamera", "width": 640, "height": 480,
                 "warmup_sec": 1.0, "timeout_sec": 15},
     "dual": {"rgb_width": 640, "rgb_height": 480, "buffers": 4,
@@ -49,6 +55,8 @@ def validate(cfg):
         if not isinstance(camera, str) or not camera or camera == "auto":
             raise ValueError(f"configure cameras.{s}")
     limits = [(cfg["capture"], "timeout_sec", 2, 30),
+              (cfg["enrollment"], "max_bursts", 3, 10),
+              (cfg["enrollment"], "timeout_sec", 60, 600),
               (cfg["capture"], "warmup_sec", 0.2, 5),
               (cfg["pam"], "verify_timeout_sec", 3, 40),
               (cfg["dual"], "buffers", 2, 16),
@@ -58,6 +66,13 @@ def validate(cfg):
               (cfg["challenge"], "min_gap", 1, 255),
               (cfg["match"], "detector_min_score", 0.1, 1)]
     limits += [(cfg["match"], s + "_threshold", 0.01, 1) for s in required]
+    limits += [(cfg["depth"], "min_distance_m", 0.1, 2),
+               (cfg["depth"], "max_distance_m", 0.2, 4),
+               (cfg["depth"], "min_valid_fraction", 0.5, 1),
+               (cfg["depth"], "min_relief_m", 0.005, 0.1),
+               (cfg["depth"], "max_relief_m", 0.01, 0.2),
+               (cfg["depth"], "min_protrusion_m", 0.003, 0.05),
+               (cfg["depth"], "max_skew_ms", 1, 50)]
     limits += [(cfg["dual"], key, 16, 4096) for key in ("rgb_width", "rgb_height")]
     limits += [(cfg["capture"], key, 16, 4096) for key in ("width", "height")]
     settle = cfg["dual"]["settle"]
@@ -75,7 +90,8 @@ def validate(cfg):
     for section, key in [(cfg["capture"], k) for k in ("width", "height")] + [
             (cfg["dual"], k) for k in ("buffers", "rgb_width", "rgb_height")] + [
             (settle, k) for k in ("stable", "min_frames", "max_frames")] + [
-            (cfg["challenge"], k) for k in ("phases", "discard_frames", "samples_per_phase")]:
+            (cfg["challenge"], k) for k in ("phases", "discard_frames", "samples_per_phase")] + [
+            (cfg["enrollment"], "max_bursts")]:
         if type(section[key]) is not int:
             raise ValueError(f"{key} must be an integer")
     if settle["min_frames"] > settle["max_frames"]:
@@ -85,6 +101,18 @@ def validate(cfg):
     mode = cfg["capture"]["mode"]
     if mode not in ("dual-pycamera", "sequential", "uvc"):
         raise ValueError("capture.mode must be dual-pycamera, sequential or uvc")
+    depth = cfg["depth"]
+    if type(depth["enabled"]) is not bool:
+        raise ValueError("depth.enabled must be a boolean")
+    if (depth["min_distance_m"] >= depth["max_distance_m"] or
+            depth["min_relief_m"] >= depth["max_relief_m"]):
+        raise ValueError("depth minimum must be less than maximum")
+    if not isinstance(depth["calibration"], str) or (depth["calibration"] and
+            not Path(depth["calibration"]).is_absolute()):
+        raise ValueError("depth.calibration must be an absolute path")
+    if depth["enabled"] and (mode != "dual-pycamera" or set(required) != {"rgb", "ir"}
+                             or not depth["calibration"]):
+        raise ValueError("depth needs concurrent rgb+ir capture and a calibration file")
     if mode == "uvc" and (required != ["rgb"] or not cfg["cameras"]["rgb"].startswith("uvc:/dev/")):
         raise ValueError("uvc mode requires only rgb and a uvc:/dev/... camera")
     if "ir" in required:
@@ -110,6 +138,12 @@ def validate(cfg):
             raise ValueError(f"{section}.{key} is required")
     if not isinstance(cfg["pam"]["user"], str):
         raise ValueError("pam.user must be a string")
+    greeter = cfg["feedback"]["greeter_user"]
+    if not isinstance(greeter, str):
+        raise ValueError("feedback.greeter_user must be an account name")
+    if greeter:
+        from .store import valid_user
+        valid_user(greeter)
     from .liveness import challenge_pattern
     challenge_pattern("validate", cfg["challenge"]["phases"])
     return cfg

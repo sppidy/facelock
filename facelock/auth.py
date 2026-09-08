@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 
-from . import acquisition, liveness, quality, recognize
+from . import acquisition, depth, liveness, quality, recognize
 
 
 def enrollment_metadata(cfg):
@@ -14,6 +14,11 @@ def enrollment_metadata(cfg):
               "rgb_size": [cfg["dual"]["rgb_width"], cfg["dual"]["rgb_height"]],
               "resize": {"method": "fit-area-v1", "width": cfg["capture"]["width"],
                          "height": cfg["capture"]["height"]}}
+    if cfg["depth"]["enabled"]:
+        from .stereo import load_calibration
+        _, digest = load_calibration(cfg)
+        fields["depth"] = {"version": "measured-relief-v1", **cfg["depth"],
+                           "calibration_sha256": digest}
     return {"version": "illumination-v2", "capture_signature": hashlib.sha256(
         json.dumps(fields, sort_keys=True).encode()).hexdigest()}
 
@@ -22,13 +27,21 @@ def extract(cfg, det, rec, burst):
     vectors, sources, boxes = {}, {}, {}
     for source in cfg["auth"]["required_sensors"]:
         usable, details = [], []
-        for img in burst.images.get(source, []):
+        for index, img in enumerate(burst.images.get(source, [])):
             v, score, box = recognize.embed(img, det, rec, cfg["match"]["detector_min_score"])
             qok, reasons = quality.check(img, box, cfg["quality"])
             details.append({"score": round(score, 3), "quality": qok,
+                            "face": v is not None,
+                            "blur": round(quality.blur_score(img), 2),
                             "reason": reasons if v is not None else "no-single-face",
                             "mean": round(quality.brightness(img), 2)})
-            if v is not None and qok:
+            depth_ok = True
+            if cfg["depth"]["enabled"] and source == "rgb":
+                measured = (burst.depth_frames[index] if source == "rgb" and
+                            len(burst.depth_frames) == len(burst.images.get(source, [])) else None)
+                depth_ok, depth_detail = depth.check(measured, img.shape, box, cfg["depth"])
+                details[-1]["depth"] = depth_detail
+            if v is not None and qok and depth_ok:
                 usable.append(v)
                 boxes[source] = box
         sources[source] = {"samples": details, "usable": len(usable), "match": False}
@@ -63,16 +76,21 @@ def verify(cfg, refs, metadata, *, capture_fn=acquisition.capture, models_fn=rec
         return False, {"reason": "capture-settings-changed-reenroll"}
     det, rec = models_fn(cfg["models"]["dir"])
     vectors, detail = extract(cfg, det, rec, capture_fn(cfg))
+    scores = []
     for source in required:
         similarities = [recognize.similarity(v, refs[source]) for v in vectors.get(source, [])]
         # Two independent good frames must match in every configured domain.
         threshold = cfg["match"][source + "_threshold"]
         matched = sum(s >= threshold for s in similarities) >= 2
+        if matched:
+            scores.append(sorted(similarities, reverse=True)[1])
         detail["sources"][source].update(match=matched,
             similarities=[round(s, 4) for s in similarities], threshold=threshold)
     accepted, fusion = liveness.fuse(detail["sources"], required)
     accepted = accepted and detail["illumination"]["ok"]
     detail.update(fusion=fusion, accepted=accepted)
+    if accepted:
+        detail["match_score"] = min(scores)
     return accepted, detail
 
 
