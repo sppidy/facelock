@@ -1,8 +1,44 @@
-# A14 CPU imaging backport
+# A14 camera patches
 
-`libcamera-0.7.1-imaging.patch` applies to the existing X1P 0.7.1 source
-snapshot with the disjoint-route allocator and CPU SoftISP. It is a backport
-for that snapshot, not a replacement for the current upstream libcamera tree.
+These patches provide concurrent RGB/IR capture and CPU image processing
+for the Zenbook A14. Apply the CAMSS patch to the kernel source and the
+other two patches to libcamera; they are not applied to Facelock itself.
+
+| Patch | Target | Purpose |
+| --- | --- | --- |
+| [CAMSS mapping](x1p-camss-normal-world-mapping.patch) | Linux | Align X1P camera resources and links. |
+| [Camera routing](x1p-libcamera-disjoint-routes.patch) | libcamera | Let the cameras use separate capture routes. |
+| [CPU imaging](libcamera-0.7.1-imaging.patch) | libcamera 0.7.1 | Correct black level, gain and white balance. |
+
+## Routing
+
+The CAMSS patch records its kernel base commit in the header. The libcamera
+patches target the 0.7.1 camera stack; compatibility with other versions
+needs checking. From each target source tree, check the relevant patch
+before applying it:
+
+```sh
+patch --dry-run -p1 < /path/to/facelock/patches/PATCH_NAME
+patch -p1 < /path/to/facelock/patches/PATCH_NAME
+```
+
+Apply the routing patch before the imaging backport. Enable separate routes
+in the camera runtime's `opt-in/libcamera/configuration.yaml`:
+
+```yaml
+pipelines:
+  simple:
+    prefer_disjoint_routes: true
+```
+
+The launcher selects this configuration when `runtime.stack` points to the
+camera runtime. See [A14 camera runtime](../README.md#a14-camera-runtime)
+for the staging command.
+
+## CPU imaging backport
+
+`libcamera-0.7.1-imaging.patch` targets libcamera 0.7.1 with the routing patch
+and CPU SoftISP. It needs adaptation for newer libcamera versions.
 Build libcamera and the simple IPA together: the statistics shared-memory
 layout changes. The Python binding and proxy worker must match this libcamera
 ABI and the installed Python version.
@@ -29,8 +65,8 @@ upstream black-level/saturation series and separate validation.
 Apply to an isolated copy of the source snapshot:
 
 ```sh
-patch --dry-run -p1 < /path/to/libcamera-0.7.1-imaging.patch
-patch -p1 < /path/to/libcamera-0.7.1-imaging.patch
+patch --dry-run -p1 < /path/to/facelock/patches/libcamera-0.7.1-imaging.patch
+patch -p1 < /path/to/facelock/patches/libcamera-0.7.1-imaging.patch
 ```
 
 For an existing matching build, rebuild both targets:
@@ -42,7 +78,7 @@ ninja -C ../build src/libcamera/libcamera.so.0.7.1 src/ipa/simple/ipa_soft_simpl
 The tested Meson options include `pipelines=simple`, `ipas=simple`,
 `pycamera=enabled`, `softisp-gpu=disabled`, `buildtype=release`, and
 `cpp_args=-Wno-error=array-bounds` for the existing GCC 16 build warning.
-Use `tools/stage_camera_runtime.py` to snapshot the resulting runtime,
+Use [stage_camera_runtime.py](../tools/stage_camera_runtime.py) to copy the resulting runtime,
 including `build/src/libcamera/proxy/worker/soft_ipa_proxy`. Omitting that
 executable can make a relocated runtime silently disable debayering and
 negotiate raw Bayer even for a viewfinder request.

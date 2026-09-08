@@ -1,0 +1,326 @@
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -280,7 +280,8 @@
+ public:
+ 	SimpleCameraData(SimplePipelineHandler *pipe,
+ 			 unsigned int numStreams,
+-			 MediaEntity *sensor);
++			 MediaEntity *sensor,
++			 const std::set<MediaEntity *> &excluded = {});
+ 
+ 	bool isValid() const { return sensor_ != nullptr; }
+ 	SimplePipelineHandler *pipe();
+@@ -340,6 +341,7 @@
+ 	 * node.
+ 	 */
+ 	std::list<Entity> entities_;
++	std::list<Entity> fallbackEntities_;
+ 	std::unique_ptr<CameraSensor> sensor_;
+ 	V4L2VideoDevice *video_;
+ 	V4L2Subdevice *frameStartEmitter_;
+@@ -359,6 +361,7 @@
+ 
+ 	std::unique_ptr<Converter> converter_;
+ 	std::unique_ptr<SoftwareIsp> swIsp_;
++	bool configurationValid_ = false;
+ 	SimpleFrames frameInfo_;
+ 
+ private:
+@@ -427,6 +430,9 @@
+ 	V4L2Subdevice *subdev(const MediaEntity *entity);
+ 	std::shared_ptr<MediaDevice> converter() { return converter_; }
+ 	bool swIspEnabled() const { return swIspEnabled_; }
++	bool disjointRoutes() const { return disjointRoutes_; }
++	bool pipelineBusy(SimpleCameraData *data) const;
++	void invalidatePeerConfigurations(SimpleCameraData *data);
+ 
+ protected:
+ 	int queueRequestDevice(Camera *camera, Request *request) override;
+@@ -439,6 +445,7 @@
+ 		std::unique_ptr<V4L2VideoDevice> video;
+ 		std::unique_ptr<V4L2Subdevice> subdev;
+ 		std::map<const MediaPad *, SimpleCameraData *> owners;
++		std::set<SimpleCameraData *> users;
+ 	};
+ 
+ 	SimpleCameraData *cameraData(Camera *camera)
+@@ -460,6 +467,7 @@
+ 
+ 	std::shared_ptr<MediaDevice> converter_;
+ 	bool swIspEnabled_;
++	bool disjointRoutes_ = false;
+ };
+ 
+ /* -----------------------------------------------------------------------------
+@@ -468,9 +476,11 @@
+ 
+ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
+ 				   unsigned int numStreams,
+-				   MediaEntity *sensor)
++				   MediaEntity *sensor,
++				   const std::set<MediaEntity *> &excluded)
+ 	: Camera::Private(pipe), streams_(numStreams), rawStream_(nullptr)
+ {
++	auto findPipeline = [&](const std::set<MediaEntity *> &blocked) {
+ 	/*
+ 	 * Find the shortest path from the camera sensor to a video capture
+ 	 * device using the breadth-first search algorithm. This heuristic will
+@@ -496,6 +506,9 @@
+ 		std::tie(entity, sinkPad) = queue.front();
+ 		queue.pop();
+ 
++		if (blocked.count(entity))
++			continue;
++
+ 		/* Found the capture device. */
+ 		if (entity->function() == MEDIA_ENT_F_IO_V4L) {
+ 			LOG(SimplePipeline, Debug)
+@@ -544,21 +557,35 @@
+ 	}
+ 
+ 	if (!video)
+-		return;
++		return std::list<Entity>{};
+ 
+ 	/*
+ 	 * With the parents, we can follow back our way from the capture device
+ 	 * to the sensor. Store all the entities in the pipeline, from the
+ 	 * camera sensor to the video node, in entities_.
+ 	 */
+-	entities_.push_front({ entity, false, sinkPad, nullptr, nullptr });
++	std::list<Entity> path;
++	path.push_front({ entity, false, sinkPad, nullptr, nullptr });
+ 
+ 	for (auto it = parents.find(entity); it != parents.end();
+ 	     it = parents.find(entity)) {
+ 		const Entity &e = it->second;
+-		entities_.push_front(e);
++		path.push_front(e);
+ 		entity = e.entity;
+ 	}
++	return path;
++	};
++
++	entities_ = findPipeline({});
++	if (!excluded.empty()) {
++		std::list<Entity> preferred = findPipeline(excluded);
++		if (!preferred.empty()) {
++			fallbackEntities_ = std::move(entities_);
++			entities_ = std::move(preferred);
++		}
++	}
++	if (entities_.empty())
++		return;
+ 
+ 	/* Finally also remember the sensor. */
+ 	sensor_ = CameraSensorFactoryBase::create(sensor);
+@@ -629,6 +656,7 @@
+ 		}
+ 	}
+ 
++	for (;;) {
+ 	video_ = pipe->video(entities_.back().entity);
+ 	ASSERT(video_);
+ 
+@@ -637,22 +665,26 @@
+ 	 * account to propagate TRY formats. Such is life :-(
+ 	 */
+ 	ret = setupLinks();
+-	if (ret < 0)
+-		return ret;
+-
+ 	/*
+ 	 * Generate the list of possible pipeline configurations by trying each
+ 	 * media bus format and size supported by the sensor.
+ 	 */
++	if (ret == 0) {
+ 	for (unsigned int code : sensor_->mbusCodes()) {
+ 		for (const Size &size : sensor_->sizes(code))
+ 			tryPipeline(code, size);
+ 	}
+-
+-	if (configs_.empty()) {
+-		LOG(SimplePipeline, Error) << "No valid configuration found";
+-		return -EINVAL;
+ 	}
++	if (!configs_.empty())
++		break;
++	if (fallbackEntities_.empty())
++		return ret < 0 ? ret : -EINVAL;
++	LOG(SimplePipeline, Debug) << "Disjoint route unusable, trying legacy route";
++	entities_ = std::move(fallbackEntities_);
++	fallbackEntities_.clear();
++	}
++
++	fallbackEntities_.clear();
+ 
+ 	/* Map the pixel formats to configurations. */
+ 	for (const Configuration &config : configs_) {
+@@ -762,6 +794,10 @@
+ {
+ 	int ret;
+ 
++	/* Check the entire path before changing any links of an active peer. */
++	if (pipe()->pipelineBusy(this))
++		return -EBUSY;
++
+ 	/*
+ 	 * Configure all links along the pipeline. Some entities may not allow
+ 	 * multiple sink links to be enabled together, even on different sink
+@@ -792,7 +828,8 @@
+ 				continue;
+ 
+ 			for (MediaLink *link : pad->links()) {
+-				if (link == sinkLink)
++				if (link == sinkLink ||
++				    (pipe()->disjointRoutes() && link == e.sourceLink))
+ 					continue;
+ 
+ 				if ((link->flags() & MEDIA_LNK_FL_ENABLED) &&
+@@ -1509,6 +1546,12 @@
+ 	 * Configure links on the pipeline and propagate formats from the
+ 	 * sensor to the video node.
+ 	 */
++	if (pipelineBusy(data))
++		return -EBUSY;
++	if (disjointRoutes_) {
++		data->configurationValid_ = false;
++		invalidatePeerConfigurations(data);
++	}
+ 	ret = data->setupLinks();
+ 	if (ret < 0)
+ 		return ret;
+@@ -1579,8 +1622,10 @@
+ 			data->rawStream_ = &data->streams_[i];
+ 	}
+ 
+-	if (outputCfgs.empty())
++	if (outputCfgs.empty()) {
++		data->configurationValid_ = true;
+ 		return 0;
++	}
+ 
+ 	StreamConfiguration inputCfg;
+ 	inputCfg.pixelFormat = videoFormat.toPixelFormat();
+@@ -1589,12 +1634,14 @@
+ 	inputCfg.bufferCount = kNumInternalBuffers;
+ 
+ 	if (data->converter_) {
+-		return data->converter_->configure(inputCfg, outputCfgs);
++		ret = data->converter_->configure(inputCfg, outputCfgs);
+ 	} else {
+ 		ipa::soft::IPAConfigInfo configInfo;
+ 		configInfo.sensorControls = data->sensor_->controls();
+-		return data->swIsp_->configure(inputCfg, outputCfgs, configInfo);
++		ret = data->swIsp_->configure(inputCfg, outputCfgs, configInfo);
+ 	}
++	data->configurationValid_ = ret == 0;
++	return ret;
+ }
+ 
+ int SimplePipelineHandler::exportFrameBuffers(Camera *camera, Stream *stream,
+@@ -1622,6 +1669,13 @@
+ 	V4L2Subdevice *frameStartEmitter = data->frameStartEmitter_;
+ 	int ret;
+ 
++	if (disjointRoutes_ && !data->configurationValid_) {
++		LOG(SimplePipeline, Error) << "Route configuration changed; configure again before start";
++		return -EINVAL;
++	}
++	if (pipelineBusy(data))
++		return -EBUSY;
++
+ 	const MediaPad *pad = acquirePipeline(data);
+ 	if (pad) {
+ 		LOG(SimplePipeline, Info)
+@@ -1911,9 +1965,15 @@
+ 
+ 	pipelines.reserve(sensors.size());
+ 
++	/* Experimental discovery policy, disabled unless explicitly requested. */
++	disjointRoutes_ = configuration.configuration()["pipelines"]["simple"]
++		["prefer_disjoint_routes"].get<bool>().value_or(false);
++	std::set<MediaEntity *> assigned;
++
+ 	for (MediaEntity *sensor : sensors) {
+ 		std::unique_ptr<SimpleCameraData> data =
+-			std::make_unique<SimpleCameraData>(this, numStreams, sensor);
++			std::make_unique<SimpleCameraData>(this, numStreams, sensor,
++						  disjointRoutes_ ? assigned : std::set<MediaEntity *>{});
+ 		if (!data->isValid()) {
+ 			LOG(SimplePipeline, Error)
+ 				<< "No valid pipeline for sensor '"
+@@ -1921,8 +1981,14 @@
+ 			continue;
+ 		}
+ 
+-		for (SimpleCameraData::Entity &entity : data->entities_)
++		for (SimpleCameraData::Entity &entity : data->entities_) {
++			entities.insert(entity.entity);
++			assigned.insert(entity.entity);
++		}
++		for (const SimpleCameraData::Entity &entity : data->fallbackEntities_) {
+ 			entities.insert(entity.entity);
++			assigned.insert(entity.entity);
++		}
+ 
+ 		pipelines.push_back(std::move(data));
+ 	}
+@@ -1984,7 +2050,7 @@
+ 			break;
+ 		}
+ 
+-		entities_[entity] = { std::move(video), std::move(subdev), {} };
++		entities_[entity] = { std::move(video), std::move(subdev), {}, {} };
+ 	}
+ 
+ 	/* Initialize each pipeline and register a corresponding camera. */
+@@ -1995,6 +2061,9 @@
+ 		if (ret < 0)
+ 			continue;
+ 
++		for (const SimpleCameraData::Entity &entity : data->entities_)
++			entities_[entity.entity].users.insert(data.get());
++
+ 		std::set<Stream *> streams;
+ 		std::transform(data->streams_.begin(), data->streams_.end(),
+ 			       std::inserter(streams, streams.end()),
+@@ -2069,6 +2138,38 @@
+  * \brief Acquire all resources needed by the camera pipeline
+  * \return nullptr on success, a pointer to the contended pad on error
+  */
++void SimplePipelineHandler::invalidatePeerConfigurations(SimpleCameraData *data)
++{
++	/* Shared fallback routes may be configured while neither camera runs. */
++	for (const SimpleCameraData::Entity &entity : data->entities_) {
++		for (SimpleCameraData *peer : entities_.at(entity.entity).users) {
++			if (peer != data)
++				peer->configurationValid_ = false;
++		}
++	}
++}
++
++bool SimplePipelineHandler::pipelineBusy(SimpleCameraData *data) const
++{
++	if (!disjointRoutes_)
++		return false;
++
++	for (const SimpleCameraData::Entity &entity : data->entities_) {
++		auto iter = entities_.find(entity.entity);
++		if (iter == entities_.end())
++			continue;
++
++		for (const auto &[pad, owner] : iter->second.owners) {
++			if (owner != data &&
++			    (!entity.supportsRouting || pad == entity.sink ||
++			     pad == entity.source))
++				return true;
++		}
++	}
++
++	return false;
++}
++
+ const MediaPad *SimplePipelineHandler::acquirePipeline(SimpleCameraData *data)
+ {
+ 	for (const SimpleCameraData::Entity &entity : data->entities_) {
