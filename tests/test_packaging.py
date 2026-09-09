@@ -8,7 +8,7 @@ import tarfile
 import unittest
 
 from ci.prepare import changelog_for, release_history, skip_build, stable_release
-from ci.inspect import allowed_documentation, inspect_payload
+from ci.inspect import allowed_documentation, allowed_python_runtime_hook, inspect_payload
 from ci.publish import release_assets, release_notes
 from ci.prune_nightlies import stale_nightlies
 from ci.repo_site import channel_releases
@@ -26,6 +26,14 @@ class PackagingTests(unittest.TestCase):
             'usr/share/doc/facelock-preview/changelog.Debian.gz'))
         self.assertFalse(allowed_documentation(
             'usr/share/doc/facelock-nightly/unexpected'))
+
+    def test_python_runtime_hook_allowlist(self):
+        self.assertTrue(allowed_python_runtime_hook(
+            'usr/share/python3/runtime.d/facelock.rtupdate'))
+        self.assertTrue(allowed_python_runtime_hook(
+            'usr/share/python3/runtime.d/facelock-nightly.rtupdate'))
+        self.assertFalse(allowed_python_runtime_hook(
+            'usr/share/python3/runtime.d/facelock-preview.rtupdate'))
 
     def test_classification(self):
         main = 'refs/heads/main'
@@ -81,6 +89,12 @@ class PackagingTests(unittest.TestCase):
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
+
+    def test_private_runtime_configuration_has_valid_schema(self):
+        source = (ROOT / 'camera-runtime' / 'build.py').read_text()
+        self.assertIn("route.write_text('version: 1\\nconfiguration:\\n", source)
+        self.assertIn("  pipelines:\\n    simple:\\n", source)
+        self.assertIn("'XDG_CONFIG_HOME': str(output / 'opt-in')", source)
 
     def test_arch_install_recipe_contains_ux_commands_and_service(self):
         with tempfile.TemporaryDirectory() as directory:

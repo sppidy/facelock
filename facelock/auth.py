@@ -8,9 +8,12 @@ from . import acquisition, depth, liveness, quality, recognize
 
 
 def enrollment_metadata(cfg):
+    # The capability flag only requires a kernel attestation before capture;
+    # it does not change the camera pipeline or resulting embeddings.
+    runtime = {key: cfg["runtime"][key] for key in ("stack", "tuning")}
     fields = {"version": "illumination-v2", "cameras": cfg["cameras"],
               "torch": cfg["ir_led"], "required": cfg["auth"]["required_sensors"],
-              "mode": cfg["capture"]["mode"], "runtime": cfg["runtime"],
+              "mode": cfg["capture"]["mode"], "runtime": runtime,
               "rgb_size": [cfg["dual"]["rgb_width"], cfg["dual"]["rgb_height"]],
               "resize": {"method": "fit-area-v1", "width": cfg["capture"]["width"],
                          "height": cfg["capture"]["height"]}}

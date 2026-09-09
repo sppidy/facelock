@@ -18,7 +18,8 @@ from stage_camera_runtime import stage
 COMMIT = '597a5bb97bf9257790edf21020c679aa666ba307'
 URL = 'https://git.libcamera.org/libcamera/libcamera.git'
 PREFIX = '/usr/lib/facelock/camera'
-PATCHES = ['x1p-libcamera-disjoint-routes.patch', 'libcamera-0.7.1-imaging.patch']
+PATCHES = ['x1p-libcamera-disjoint-routes.patch', 'libcamera-0.7.1-imaging.patch',
+           'libcamera-pybind11-v3-smart-holder.patch']
 
 
 def run(*args, **kwargs):
@@ -50,7 +51,8 @@ def build(work, output, source=None, jobs=2):
     run('ninja', '-C', str(work / 'build'), '-j', str(jobs))
     route = work / 'opt-in/libcamera/configuration.yaml'
     route.parent.mkdir(parents=True)
-    route.write_text('pipelines:\n  simple:\n    prefer_disjoint_routes: true\n')
+    route.write_text('version: 1\nconfiguration:\n  pipelines:\n    simple:\n'
+                     '      prefer_disjoint_routes: true\n')
     stage(work, output)
     shutil.copytree(ROOT / 'tuning', output / 'tuning')
     shutil.copytree(checkout / 'LICENSES', output / 'LICENSES')
@@ -75,7 +77,10 @@ def smoke(output):
     output = Path(output).resolve()
     libs = output / 'build/src/libcamera'
     env = {'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8',
-           'LD_LIBRARY_PATH': f'{libs}:{libs / "base"}'}
+           'LD_LIBRARY_PATH': f'{libs}:{libs / "base"}',
+           'XDG_CONFIG_HOME': str(output / 'opt-in'),
+           'LIBCAMERA_IPA_MODULE_PATH': str(output / 'build/src/ipa/simple'),
+           'LIBCAMERA_IPA_PROXY_PATH': str(output / 'build/src/libcamera/proxy/worker')}
     for path in output.rglob('*'):
         if path.is_file() and path.read_bytes()[:4] == b'\x7fELF':
             result = subprocess.check_output(['ldd', str(path)], env=env, text=True)
@@ -84,7 +89,9 @@ def smoke(output):
             for line in result.splitlines():
                 if 'libcamera' in line and '=>' in line and str(libs) not in line:
                     raise RuntimeError('system libcamera leaked into bundled runtime: ' + line)
-    code = 'import sys; sys.path.insert(0, sys.argv[1]); import libcamera; print(libcamera.__file__)'
+    code = ('import sys; sys.path.insert(0, sys.argv[1]); import libcamera; '
+            'manager = libcamera.CameraManager.singleton(); '
+            'print(libcamera.__file__, [camera.id for camera in manager.cameras])')
     run(sys.executable, '-I', '-B', '-c', code, str(output / 'build/src/py'), env=env)
 
 

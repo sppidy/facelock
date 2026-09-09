@@ -17,6 +17,11 @@ def allowed_documentation(name):
                               'changelog.Debian.gz', 'changelog.gz'})
 
 
+def allowed_python_runtime_hook(name):
+    return name in {'usr/share/python3/runtime.d/facelock.rtupdate',
+                    'usr/share/python3/runtime.d/facelock-nightly.rtupdate'}
+
+
 def inspect_payload(archive, deb=False, elf_machine=183):
     files = {}
     for member in archive.getmembers():
@@ -41,7 +46,7 @@ def inspect_payload(archive, deb=False, elf_machine=183):
                 assert name.endswith(('.py', '.yaml', '.json', '.txt', '.rst', '.sign')) or '/LICENSES/' in name, name
             continue
         allowed = (
-            name in {'usr/share/python3/runtime.d/facelock.rtupdate', 'usr/bin/facelock-run', 'usr/bin/facelock-detect',
+            name in {'usr/bin/facelock-run', 'usr/bin/facelock-detect',
                      'usr/bin/facelock-auth', 'usr/lib/systemd/system/facelock-auth.socket',
                      'usr/lib/systemd/system/facelock-auth@.service',
                      'usr/bin/facelock-feedback', 'usr/bin/facelock-enroll',
@@ -51,11 +56,11 @@ def inspect_payload(archive, deb=False, elf_machine=183):
                      'usr/lib/udev/rules.d/99-facelock-ir-led.rules'}
             or (name.startswith('usr/lib/facelock/') and name.endswith(('.py', '/pam_check.sh')))
             or (name.startswith(('usr/share/facelock/profiles/', 'usr/share/facelock/tuning/simple/')) and name.endswith('.yaml'))
+            or allowed_python_runtime_hook(name)
             or allowed_documentation(name)
         )
         assert allowed, f'Unexpected payload: {name}'
-        executable = name.startswith('usr/bin/') or name in {
-            'usr/share/python3/runtime.d/facelock.rtupdate',
+        executable = name.startswith('usr/bin/') or allowed_python_runtime_hook(name) or name in {
             'usr/lib/facelock/setup_models.py', 'usr/lib/facelock/enroll.py',
             'usr/lib/facelock/verify.py', 'usr/lib/facelock/pam_check.sh',
             'usr/lib/facelock/runner.py', 'usr/lib/facelock/diagnose.py',

@@ -97,6 +97,15 @@ class AuthTests(unittest.TestCase):
         self.cfg["ir_led"]["mode"] = "torch"
         self.assertFalse(self.verify(metadata=old)[0])
 
+    def test_capability_check_does_not_invalidate_enrollment(self):
+        self.cfg["runtime"].update(stack="/camera", tuning="/tuning",
+                                   require_camss=False)
+        old = auth.enrollment_metadata(self.cfg)
+        self.cfg["runtime"]["require_camss"] = True
+        self.assertEqual(auth.enrollment_metadata(self.cfg), old)
+        self.cfg["runtime"]["stack"] = "/different-camera"
+        self.assertNotEqual(auth.enrollment_metadata(self.cfg), old)
+
     def test_enroll_and_verify_share_pipeline(self):
         refs, detail = auth.enroll(self.cfg, models_fn=self.models, capture_fn=lambda _: burst())
         self.assertEqual(set(refs), {"rgb", "ir"})
