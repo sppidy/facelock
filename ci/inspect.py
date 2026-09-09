@@ -8,6 +8,15 @@ import sys
 import tarfile
 
 
+def allowed_documentation(name):
+    path = Path(name)
+    return (path.parent in {Path('usr/share/doc/facelock'),
+                            Path('usr/share/doc/facelock-nightly')}
+            and path.name in {'README.md', 'README.md.gz', 'CHANGELOG.md',
+                              'CHANGELOG.md.gz', 'config.example.yaml',
+                              'changelog.Debian.gz', 'changelog.gz'})
+
+
 def inspect_payload(archive, deb=False, elf_machine=183):
     files = {}
     for member in archive.getmembers():
@@ -42,9 +51,7 @@ def inspect_payload(archive, deb=False, elf_machine=183):
                      'usr/lib/udev/rules.d/99-facelock-ir-led.rules'}
             or (name.startswith('usr/lib/facelock/') and name.endswith(('.py', '/pam_check.sh')))
             or (name.startswith(('usr/share/facelock/profiles/', 'usr/share/facelock/tuning/simple/')) and name.endswith('.yaml'))
-            or (name.startswith('usr/share/doc/facelock/') and Path(name).name in {
-                'README.md', 'README.md.gz', 'CHANGELOG.md', 'CHANGELOG.md.gz',
-                'config.example.yaml', 'changelog.Debian.gz', 'changelog.gz'})
+            or allowed_documentation(name)
         )
         assert allowed, f'Unexpected payload: {name}'
         executable = name.startswith('usr/bin/') or name in {

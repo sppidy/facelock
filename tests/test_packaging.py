@@ -8,7 +8,7 @@ import tarfile
 import unittest
 
 from ci.prepare import changelog_for, release_history, skip_build, stable_release
-from ci.inspect import inspect_payload
+from ci.inspect import allowed_documentation, inspect_payload
 from ci.publish import release_assets, release_notes
 from ci.prune_nightlies import stale_nightlies
 from ci.repo_site import channel_releases
@@ -17,6 +17,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_documentation_payload_allowlist(self):
+        self.assertTrue(allowed_documentation(
+            'usr/share/doc/facelock/changelog.Debian.gz'))
+        self.assertTrue(allowed_documentation(
+            'usr/share/doc/facelock-nightly/changelog.Debian.gz'))
+        self.assertFalse(allowed_documentation(
+            'usr/share/doc/facelock-preview/changelog.Debian.gz'))
+        self.assertFalse(allowed_documentation(
+            'usr/share/doc/facelock-nightly/unexpected'))
+
     def test_classification(self):
         main = 'refs/heads/main'
         self.assertTrue(stable_release('workflow_dispatch', {'inputs': {'channel': 'stable'}}, main))
