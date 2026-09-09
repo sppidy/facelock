@@ -6,6 +6,8 @@ cameras:
   rgb: /base/soc@0/.../camera@36
 capture:
   mode: sequential
+attention:
+  enabled: false  # requires rgb; tune using diagnose.py --json before enabling PAM
 models:
   dir: /usr/share/facelock/models
 store:

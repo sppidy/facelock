@@ -76,7 +76,8 @@ class WizardTests(unittest.TestCase):
         self.assertEqual(capture.call_count, 1)
 
     def test_every_frame_reports_score_blur_and_brightness(self):
-        with patch("facelock.recognize.embed", return_value=(vector(), 0.9, (0, 0, 32, 32))):
+        with patch("facelock.recognize.embed",
+                   return_value=(vector(), 0.9, (0, 0, 32, 32), None)):
             _, detail = auth.extract(self.cfg, None, None, burst())
         for source in detail["sources"].values():
             for sample in source["samples"]:

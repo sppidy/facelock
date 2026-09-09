@@ -20,6 +20,9 @@ DEFAULTS = {
                         "min_frames": 20, "max_frames": 90}},
     "challenge": {"phases": 8, "guard_ms": 100, "discard_frames": 2,
                   "samples_per_phase": 2, "min_gap": 8.0},
+    "attention": {"enabled": False, "max_head_yaw": 0.18, "max_roll_deg": 15.0,
+                  "min_head_pitch": 0.30, "max_head_pitch": 0.70,
+                  "max_eye_offset": 0.35, "min_eye_contrast": 8.0},
     "match": {"rgb_threshold": 0.38, "ir_threshold": 0.30, "detector_min_score": 0.6},
     "quality": {"min_blur": 25.0, "brightness_range": [15.0, 235.0], "min_face_frac": 0.05},
     "pam": {"user": "", "verify_timeout_sec": 20},
@@ -64,6 +67,12 @@ def validate(cfg):
               (cfg["challenge"], "discard_frames", 2, 16),
               (cfg["challenge"], "samples_per_phase", 1, 4),
               (cfg["challenge"], "min_gap", 1, 255),
+              (cfg["attention"], "max_head_yaw", 0.05, 0.5),
+              (cfg["attention"], "max_roll_deg", 1, 45),
+              (cfg["attention"], "min_head_pitch", 0.1, 0.8),
+              (cfg["attention"], "max_head_pitch", 0.2, 0.9),
+              (cfg["attention"], "max_eye_offset", 0.1, 0.8),
+              (cfg["attention"], "min_eye_contrast", 0, 100),
               (cfg["match"], "detector_min_score", 0.1, 1)]
     limits += [(cfg["match"], s + "_threshold", 0.01, 1) for s in required]
     limits += [(cfg["depth"], "min_distance_m", 0.1, 2),
@@ -98,6 +107,13 @@ def validate(cfg):
         raise ValueError("min_frames exceeds max_frames")
     if cfg["capture"]["timeout_sec"] >= cfg["pam"]["verify_timeout_sec"]:
         raise ValueError("PAM timeout must exceed capture timeout")
+    attention = cfg["attention"]
+    if type(attention["enabled"]) is not bool:
+        raise ValueError("attention.enabled must be a boolean")
+    if attention["min_head_pitch"] >= attention["max_head_pitch"]:
+        raise ValueError("attention head-pitch minimum must be less than maximum")
+    if attention["enabled"] and "rgb" not in required:
+        raise ValueError("attention requires rgb authentication")
     mode = cfg["capture"]["mode"]
     if mode not in ("dual-pycamera", "sequential", "uvc"):
         raise ValueError("capture.mode must be dual-pycamera, sequential or uvc")

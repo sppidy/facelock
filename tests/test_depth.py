@@ -59,7 +59,7 @@ class DepthTests(unittest.TestCase):
         b = Burst({"rgb": [img] * 3, "ir": [img] * 3}, [], [], {}, [face_depth()] * 3)
         # Isolate measured depth from the independent existing illumination gate.
         with patch("facelock.auth.liveness.temporal_noise", return_value={}), \
-             patch("facelock.auth.recognize.embed", return_value=(vector(), .9, (0, 0, 100, 100))), \
+             patch("facelock.auth.recognize.embed", return_value=(vector(), .9, (0, 0, 100, 100), None)), \
              patch("facelock.auth.enrollment_metadata", return_value={}), \
              patch("facelock.auth.liveness.check_challenge", return_value=(True, {})):
             b.ir_frames, b.pattern = [np.ones((100, 100))] * 6, [0, 1] * 3

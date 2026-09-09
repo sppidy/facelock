@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from facelock import acquisition, liveness, recognize
+from facelock import acquisition, config, liveness, recognize
 from facelock.dual_capture import CameraSession, Frame, _read_plane, decode_rgb
 from test_auth import settings, vector
 
@@ -182,3 +182,40 @@ class RecognitionTests(unittest.TestCase):
         self.assertIsNotNone(v)
         det.detect.return_value = (None, [face, face])
         self.assertIsNone(recognize.embed(np.zeros((16, 16, 3), np.uint8), det, rec, 0.6)[0])
+
+    @staticmethod
+    def attention_image(pupil_shift=(0, 0)):
+        image = np.full((120, 120, 3), 190, np.uint8)
+        yy, xx = np.indices(image.shape[:2])
+        for cx, cy in ((45, 50), (75, 50)):
+            mask = ((xx - cx - pupil_shift[0]) ** 2 +
+                    (yy - cy - pupil_shift[1]) ** 2) <= 3 ** 2
+            image[mask] = 15
+        return image
+
+    @staticmethod
+    def frontal_face():
+        return np.array([20, 15, 80, 100, 45, 50, 75, 50, 60, 68,
+                         48, 88, 72, 88, 0.95], dtype=np.float64)
+
+    def test_attention_accepts_frontal_face_and_centered_pupils(self):
+        detail = recognize.check_attention(
+            self.attention_image(), self.frontal_face(), config.DEFAULTS["attention"])
+        self.assertTrue(detail["ok"], detail)
+        self.assertEqual(detail["reason"], "ok")
+
+    def test_attention_rejects_turned_face_and_away_pupils(self):
+        face = self.frontal_face()
+        face[8] = 70  # nose displaced from the eye midpoint
+        detail = recognize.check_attention(
+            self.attention_image(), face, config.DEFAULTS["attention"])
+        self.assertEqual(detail["reason"], "head-turned")
+        detail = recognize.check_attention(
+            self.attention_image((4, 0)), self.frontal_face(), config.DEFAULTS["attention"])
+        self.assertEqual(detail["reason"], "eyes-looking-away")
+
+    def test_attention_rejects_missing_eye_contrast(self):
+        detail = recognize.check_attention(
+            np.full((120, 120, 3), 100, np.uint8), self.frontal_face(),
+            config.DEFAULTS["attention"])
+        self.assertEqual(detail["reason"], "eyes-not-visible")

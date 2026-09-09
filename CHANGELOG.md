@@ -9,6 +9,7 @@
 - User-confirmed drift warnings after three accepted matches below 0.55 similarity.
 - Experimental calibrated RGB/IR stereo depth liveness for the Zenbook A14.
 - A private patched libcamera runtime embedded in the Debian and Arch packages.
+- An optional frontal-pose and coarse eye-direction attention gate.
 
 ### Changed
 

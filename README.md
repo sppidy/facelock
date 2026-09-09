@@ -50,6 +50,13 @@ saved; declining keeps any existing enrollment. Use `--yes` for an explicit
 noninteractive save. `enrollment.max_bursts` and `enrollment.timeout_sec`
 control the retry limit and overall deadline.
 
+Set `attention.enabled: true` to require a near-frontal RGB face with both eyes
+visible and coarse pupil direction toward the camera. The thresholds under
+`attention` are configurable. This lightweight image heuristic rejects turned
+heads and obvious glances, but it is not a calibrated eye tracker and should be
+used together with the RGB/IR illumination challenge rather than as a separate
+spoof detector. It does not invalidate an existing enrollment.
+
 For a desktop wizard, run `facelock-enroll` as your normal user, or open
 **Facelock Enrollment** from the application menu. It uses the same capture
 checks and has a separate **Save enrollment** button. The system authorization

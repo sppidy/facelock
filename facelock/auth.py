@@ -31,13 +31,21 @@ def extract(cfg, det, rec, burst):
     for source in cfg["auth"]["required_sensors"]:
         usable, details = [], []
         for index, img in enumerate(burst.images.get(source, [])):
-            v, score, box = recognize.embed(img, det, rec, cfg["match"]["detector_min_score"])
+            attention_cfg = cfg["attention"] if source == "rgb" else None
+            v, score, box, attention = recognize.embed(
+                img, det, rec, cfg["match"]["detector_min_score"],
+                attention=attention_cfg, details=True)
             qok, reasons = quality.check(img, box, cfg["quality"])
+            reason = reasons if v is not None else "no-single-face"
+            if attention is not None and not attention["ok"]:
+                reason = attention["reason"]
             details.append({"score": round(score, 3), "quality": qok,
-                            "face": v is not None,
+                            "face": box is not None,
                             "blur": round(quality.blur_score(img), 2),
-                            "reason": reasons if v is not None else "no-single-face",
+                            "reason": reason,
                             "mean": round(quality.brightness(img), 2)})
+            if attention is not None:
+                details[-1]["attention"] = attention
             depth_ok = True
             if cfg["depth"]["enabled"] and source == "rgb":
                 measured = (burst.depth_frames[index] if source == "rgb" and

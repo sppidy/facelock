@@ -38,7 +38,8 @@ class AuthTests(unittest.TestCase):
         self.cfg = settings()
         self.refs = {s: vector() for s in ("rgb", "ir")}
         self.models = lambda _: (None, None)
-        self.embed = patch("facelock.recognize.embed", return_value=(vector(), 0.9, (0, 0, 32, 32)))
+        self.embed = patch("facelock.recognize.embed",
+                           return_value=(vector(), 0.9, (0, 0, 32, 32), None))
         self.embed.start()
         self.addCleanup(self.embed.stop)
 
@@ -105,6 +106,20 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(auth.enrollment_metadata(self.cfg), old)
         self.cfg["runtime"]["stack"] = "/different-camera"
         self.assertNotEqual(auth.enrollment_metadata(self.cfg), old)
+
+    def test_optional_attention_rejects_away_rgb_samples_without_reenrollment(self):
+        old = auth.enrollment_metadata(self.cfg)
+        self.cfg["attention"]["enabled"] = True
+        self.assertEqual(auth.enrollment_metadata(self.cfg), old)
+        away = {"required": True, "ok": False, "reason": "eyes-looking-away"}
+        rejected = (None, 0.9, (0, 0, 32, 32), away)
+        accepted = (vector(), 0.9, (0, 0, 32, 32), None)
+        with patch("facelock.recognize.embed",
+                   side_effect=[rejected] * 3 + [accepted] * 3):
+            ok, detail = self.verify()
+        self.assertFalse(ok)
+        self.assertTrue(all(sample["reason"] == "eyes-looking-away"
+                            for sample in detail["sources"]["rgb"]["samples"]))
 
     def test_enroll_and_verify_share_pipeline(self):
         refs, detail = auth.enroll(self.cfg, models_fn=self.models, capture_fn=lambda _: burst())
@@ -203,10 +218,17 @@ class PolicyTests(unittest.TestCase):
                    {"challenge": {"discard_frames": 0}},
                    {"capture": {"timeout_sec": float("nan")}},
                    {"match": {"ir_threshold": -0.5}},
+                   {"attention": {"enabled": "yes"}},
+                   {"attention": {"min_head_pitch": 0.8, "max_head_pitch": 0.7}},
                    {"quality": {"brightness_range": [200, 10]}}]
         for change in changes:
             with self.subTest(change=change), self.assertRaises((ValueError, TypeError)):
                 config.validate(config.merge(settings(), change))
+
+    def test_attention_requires_rgb_when_enabled(self):
+        cfg = settings(("ir",))
+        with self.assertRaisesRegex(ValueError, "requires rgb"):
+            config.validate(config.merge(cfg, {"attention": {"enabled": True}}))
 
     def test_all_shipped_profiles_load(self):
         root = Path(__file__).resolve().parents[1]

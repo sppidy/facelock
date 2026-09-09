@@ -31,6 +31,14 @@ challenge:
   discard_frames: 2
   samples_per_phase: 2
   min_gap: 8.0
+attention:
+  enabled: false  # opt in to frontal head-pose and coarse eye-direction checks
+  max_head_yaw: 0.18
+  max_roll_deg: 15.0
+  min_head_pitch: 0.30
+  max_head_pitch: 0.70
+  max_eye_offset: 0.35
+  min_eye_contrast: 8.0
 match:
   rgb_threshold: 0.38
   ir_threshold: 0.30
