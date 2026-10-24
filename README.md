@@ -43,6 +43,10 @@ sudo facelock-run /usr/lib/facelock/enroll.py --user YOUR_USER
 sudo facelock-run /usr/lib/facelock/verify.py --user YOUR_USER --json
 ```
 
+Model installation verifies pinned SHA-256 digests and installs downloads
+atomically. A missing, partial, or changed model is rejected instead of being
+silently reused.
+
 Enrollment collects three consistent samples from separate bursts. Each burst
 shows detection score, blur and brightness. Poor captures are retried, up to
 five bursts by default. You review the result and confirm before anything is
@@ -152,6 +156,10 @@ Add `--save-frames /private/directory` to save the last images. Diagnostics
 leave enrollment untouched; normal authentication saves no images.
 Verification details are logged to `/var/lib/facelock/attempts.jsonl` by default.
 Close other camera applications before testing.
+
+Verification and enrollment output include a `timing_ms` breakdown for model
+loading, capture, recognition, quality checks, liveness, matching, and the
+total attempt. Use `--json` to collect these values for performance diagnosis.
 
 For unprivileged diagnostics with a development build:
 

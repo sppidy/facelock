@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from facelock import acquisition, config, liveness, quality, recognize
+from facelock import acquisition, capture, config, liveness, quality, recognize
 from facelock.dual_capture import CameraSession, Frame, _read_plane, decode_rgb
 from test_auth import settings, vector
 
@@ -173,7 +173,45 @@ class PixelTests(unittest.TestCase):
         self.assertEqual(queued, [req])
 
 
+class SnapshotTests(unittest.TestCase):
+    def test_default_snapshot_uses_private_ephemeral_path(self):
+        created = []
+
+        class Process:
+            def __init__(self, command, **kwargs):
+                path = Path(command[-1].split("=", 1)[1])
+                created.append(path)
+                path.write_bytes(bytes([7]) * 6)
+
+            def terminate(self):
+                pass
+
+            def wait(self, **kwargs):
+                return 0
+
+        with patch("facelock.capture.subprocess.Popen", Process), \
+             patch("facelock.capture.time.sleep"):
+            image = capture.snapshot("uvc:/dev/video0", width=2, height=1,
+                                     warmup_sec=0)
+        self.assertEqual(image.shape, (1, 2, 3))
+        self.assertEqual(len(created), 1)
+        self.assertTrue(created[0].name == "frame.raw")
+        self.assertFalse(created[0].parent.exists())
+        self.assertFalse(Path("/tmp/facelock_frame.raw").exists())
+
+
 class QualityTests(unittest.TestCase):
+    def test_inspect_returns_measured_quality_once(self):
+        with patch("facelock.quality.blur_score", return_value=30.0) as blur, \
+             patch("facelock.quality.brightness", return_value=100.0) as brightness:
+            result = quality.inspect(np.zeros((16, 16, 3), np.uint8),
+                                     (1, 1, 8, 8), {"min_blur": 25,
+                                                     "brightness_range": [15, 235],
+                                                     "min_face_frac": 0.01})
+        self.assertEqual(result, (True, {}, 30.0, 100.0))
+        blur.assert_called_once()
+        brightness.assert_called_once()
+
     def test_face_crop_prevents_flat_ir_background_from_failing_sharp_face(self):
         image = np.full((400, 400, 3), 4, np.uint8)
         texture = (np.indices((100, 100)).sum(axis=0) % 2 * 40 + 80).astype(np.uint8)

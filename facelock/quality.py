@@ -36,8 +36,8 @@ def brightness(img_bgr, det_box=None):
     return float(np.asarray(_face_region(img_bgr, det_box)).mean())
 
 
-def check(img_bgr, det_box=None, cfg=None):
-    """Returns (ok, reasons_dict). det_box = (x, y, w, h) or None."""
+def inspect(img_bgr, det_box=None, cfg=None):
+    """Return quality status, reasons, and measured blur/brightness."""
     cfg = cfg or {}
     reasons = {}
     b = blur_score(img_bgr, det_box)
@@ -55,4 +55,10 @@ def check(img_bgr, det_box=None, cfg=None):
         frac = (w * h) / max(iw * ih, 1)
         if frac < min_frac:
             reasons["face_frac"] = round(frac, 3)
-    return (not reasons), reasons
+    return not reasons, reasons, b, m
+
+
+def check(img_bgr, det_box=None, cfg=None):
+    """Returns (ok, reasons_dict). det_box = (x, y, w, h) or None."""
+    ok, reasons, _, _ = inspect(img_bgr, det_box, cfg)
+    return ok, reasons

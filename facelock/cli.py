@@ -87,6 +87,9 @@ def report(detail, as_json=False):
     illumination = detail.get("illumination")
     if illumination:
         print(f"challenge: {illumination}")
+    timing = detail.get("timing_ms")
+    if timing:
+        print(f"timing_ms: {json.dumps(timing, sort_keys=True)}")
     print("accepted=" + str(detail.get("accepted", False)) +
           (" reason=" + detail["reason"] if detail.get("reason") else ""))
     if detail.get("enrolled"):

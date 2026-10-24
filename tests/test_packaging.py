@@ -6,17 +6,30 @@ import subprocess
 import tempfile
 import tarfile
 import unittest
+from unittest.mock import patch
 
 from ci.prepare import changelog_for, release_history, skip_build, stable_release
 from ci.inspect import allowed_documentation, allowed_python_runtime_hook, inspect_payload
 from ci.publish import release_assets, release_notes
 from ci.prune_nightlies import stale_nightlies
 from ci.repo_site import channel_releases
+from setup_models import MIN_BYTES, SHA256, valid_model
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_models_require_pinned_sha256(self):
+        for name, digest in SHA256.items():
+            self.assertEqual(len(digest), 64)
+            with self.subTest(name=name):
+                with patch("setup_models._digest",
+                           return_value=(MIN_BYTES[name], digest)):
+                    self.assertTrue(valid_model("unused", name))
+                with patch("setup_models._digest",
+                           return_value=(MIN_BYTES[name], "0" * 64)):
+                    self.assertFalse(valid_model("unused", name))
+
     def test_documentation_payload_allowlist(self):
         self.assertTrue(allowed_documentation(
             'usr/share/doc/facelock/changelog.Debian.gz'))

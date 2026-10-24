@@ -53,6 +53,15 @@ class AuthTests(unittest.TestCase):
         self.assertTrue(ok, detail)
         self.assertEqual(detail["fusion"]["required"], ["rgb", "ir"])
 
+    def test_verification_reports_timing_breakdown(self):
+        ok, detail = self.verify()
+        self.assertTrue(ok, detail)
+        timing = detail["timing_ms"]
+        for key in ("model_load_ms", "capture_ms", "recognition_ms",
+                    "quality_ms", "liveness_ms", "matching_ms", "total_ms"):
+            self.assertIn(key, timing)
+            self.assertGreaterEqual(timing[key], 0)
+
     def test_drift_score_uses_unrounded_second_best_required_match(self):
         with patch("facelock.recognize.similarity", side_effect=[0.95, 0.54999, 0.2, 0.9, 0.8, 0.75]):
             ok, detail = self.verify()

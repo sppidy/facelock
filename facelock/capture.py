@@ -2,18 +2,26 @@
 return — never a persistent stream, so the node runtime-suspends after."""
 import os
 import subprocess
+import tempfile
 import time
 
 import numpy as np
 
 
 def snapshot(camera, width=640, height=480, warmup_sec=1.5,
-             path="/tmp/facelock_frame.raw", timeout=30):
+             path=None, timeout=30):
     """Capture one BGR frame (last frame after warm-up). Returns ndarray.
 
     camera is either a libcamera camera-name, or 'uvc:/dev/videoN' for
-    plain USB webcams (uses v4l2src, no libcamera needed).
+    plain USB webcams (uses v4l2src, no libcamera needed). A private temporary
+    directory is used unless an explicit path is supplied.
     """
+    temporary_dir = None
+    if path is None:
+        temporary_dir = tempfile.TemporaryDirectory(prefix="facelock-capture-")
+        path = os.path.join(temporary_dir.name, "frame.raw")
+    else:
+        path = os.fspath(path)
     frame_bytes = width * height * 3
     for p in (path, path + ".log"):
         try:
@@ -30,7 +38,13 @@ def snapshot(camera, width=640, height=480, warmup_sec=1.5,
         "!", "filesink", f"location={path}",
     ]
     log = open(path + ".log", "wb")
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log)
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log)
+    except BaseException:
+        log.close()
+        if temporary_dir is not None:
+            temporary_dir.cleanup()
+        raise
     try:
         time.sleep(warmup_sec)
     finally:
@@ -42,33 +56,35 @@ def snapshot(camera, width=640, height=480, warmup_sec=1.5,
             proc.wait()
         log.close()
     try:
-        with open(path, "rb") as f:
-            blob = f.read()
+        try:
+            with open(path, "rb") as f:
+                blob = f.read()
+        except OSError:
+            blob = b""
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        n = len(blob) // frame_bytes
+        if n < 1:
+            tail = ""
+            try:
+                with open(path + ".log", "rb") as f:
+                    tail = f.read().decode("utf-8", "replace")[-800:]
+            except OSError:
+                pass
+            raise RuntimeError(f"no frames captured ({len(blob)} bytes). "
+                               f"gst log: {tail}")
+        return np.frombuffer(blob[(n - 1) * frame_bytes:n * frame_bytes],
+                             dtype=np.uint8).reshape(height, width, 3).copy()
     finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-    n = len(blob) // frame_bytes
-    if n < 1:
-        tail = ""
-        try:
-            with open(path + ".log", "rb") as f:
-                tail = f.read().decode("utf-8", "replace")[-800:]
-        except OSError:
-            pass
         try:
             os.remove(path + ".log")
         except OSError:
             pass
-        raise RuntimeError(f"no frames captured ({len(blob)} bytes). "
-                           f"gst log: {tail}")
-    try:
-        os.remove(path + ".log")
-    except OSError:
-        pass
-    return np.frombuffer(blob[(n - 1) * frame_bytes:n * frame_bytes],
-                         dtype=np.uint8).reshape(height, width, 3).copy()
+        if temporary_dir is not None:
+            temporary_dir.cleanup()
 
 
 def led(path, value):

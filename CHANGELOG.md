@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- Pin YuNet and SFace model downloads by SHA-256 and install them atomically.
+- Include authentication timing breakdowns in JSON, text diagnostics, and
+  private attempt telemetry.
+- Use private ephemeral files for legacy one-shot GStreamer captures by
+  default instead of fixed paths under `/tmp`.
+
 ## [0.4.0]
 
 ### Fixed
