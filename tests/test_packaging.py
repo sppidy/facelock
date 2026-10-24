@@ -93,7 +93,7 @@ class PackagingTests(unittest.TestCase):
         for path in list(ROOT.glob('*.sh')) + list((ROOT / 'ci').glob('*.sh')) + [ROOT / 'PKGBUILD', ROOT / 'facelock.install', ROOT / 'facelock-run', ROOT / 'facelock-pam-enable', ROOT / 'debian/postinst']:
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
-        self.assertEqual(tag, 'v0.4.0-1')
+        self.assertEqual(tag, 'v0.4.0-2')
         nightly = subprocess.check_output(
             ['bash', '-c', 'source PKGBUILD; printf "%s|%s|%s|%s" "$pkgname" "${provides[*]}" "${conflicts[*]}" "${replaces[*]}"'],
             cwd=ROOT, text=True, env={**os.environ, 'FACELOCK_PACKAGE_NAME': 'facelock-nightly'})
