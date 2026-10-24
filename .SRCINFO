@@ -1,7 +1,7 @@
 pkgbase = facelock
 	pkgdesc = Howdy-style face login rebuilt for libcamera/ISP and UVC cameras on ARM laptops
-	pkgver = 0.3.0
-	pkgrel = 3
+	pkgver = 0.4.0
+	pkgrel = 1
 	url = https://github.com/sppidy/facelock
 	install = facelock.install
 	arch = aarch64
@@ -42,7 +42,7 @@ pkgbase = facelock
 	replaces = facelock-nightly
 	options = !debug
 	backup = etc/facelock/config.yaml
-	source = git+https://github.com/sppidy/facelock.git#tag=v0.3.0-3
+	source = git+https://github.com/sppidy/facelock.git#tag=v0.4.0-1
 	sha256sums = SKIP
 
 pkgname = facelock

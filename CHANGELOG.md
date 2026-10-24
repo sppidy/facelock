@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.4.0]
+
 ### Fixed
 
 - Measure blur and brightness inside the detected face instead of the unused

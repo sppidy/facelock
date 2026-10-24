@@ -80,12 +80,12 @@ class PackagingTests(unittest.TestCase):
         for path in list(ROOT.glob('*.sh')) + list((ROOT / 'ci').glob('*.sh')) + [ROOT / 'PKGBUILD', ROOT / 'facelock.install', ROOT / 'facelock-run', ROOT / 'facelock-pam-enable', ROOT / 'debian/postinst']:
             subprocess.run(['bash', '-n', str(path)], check=True)
         tag = subprocess.check_output(['bash', '-c', 'source PKGBUILD; printf "%s" "$_gittag"'], cwd=ROOT, text=True)
-        self.assertEqual(tag, 'v0.3.0-3')
+        self.assertEqual(tag, 'v0.4.0-1')
         nightly = subprocess.check_output(
             ['bash', '-c', 'source PKGBUILD; printf "%s|%s|%s|%s" "$pkgname" "${provides[*]}" "${conflicts[*]}" "${replaces[*]}"'],
             cwd=ROOT, text=True, env={**os.environ, 'FACELOCK_PACKAGE_NAME': 'facelock-nightly'})
         self.assertEqual(nightly, 'facelock-nightly|facelock|facelock|facelock')
-        self.assertIn('Three-sample', changelog_for('0.3.0', ROOT / 'CHANGELOG.md'))
+        self.assertIn('Measure blur and brightness', changelog_for('0.4.0', ROOT / 'CHANGELOG.md'))
         result = subprocess.run(['bash', '-ec', 'source PKGBUILD'], cwd=ROOT,
                                 env={**os.environ, 'FACELOCK_SOURCE_ARCHIVE': 'source.tar'}, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
