@@ -47,6 +47,11 @@ Model installation verifies pinned SHA-256 digests and installs downloads
 atomically. A missing, partial, or changed model is rejected instead of being
 silently reused.
 
+IR recognition uses the same contrast-normalized image for face landmarks and
+SFace alignment. This avoids mixing landmarks from an enhanced IR frame with
+embeddings generated from the raw mono image. Re-enroll after upgrading to
+this recognition pipeline.
+
 Enrollment collects three consistent samples from separate bursts. Each burst
 shows detection score, blur and brightness. Poor captures are retried, up to
 five bursts by default. You review the result and confirm before anything is

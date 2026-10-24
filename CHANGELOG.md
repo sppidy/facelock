@@ -9,6 +9,8 @@
   private attempt telemetry.
 - Use private ephemeral files for legacy one-shot GStreamer captures by
   default instead of fixed paths under `/tmp`.
+- Use one normalized IR image for both YuNet landmarks and SFace embeddings;
+  retry with the raw frame only when normalized detection is ambiguous.
 
 ## [0.4.0]
 

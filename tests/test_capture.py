@@ -237,6 +237,35 @@ class RecognitionTests(unittest.TestCase):
         det.detect.return_value = (None, [face, face])
         self.assertIsNone(recognize.embed(np.zeros((16, 16, 3), np.uint8), det, rec, 0.6)[0])
 
+    def test_ir_landmarks_and_embedding_use_same_normalized_view(self):
+        from unittest.mock import Mock
+        raw = np.zeros((16, 16, 3), np.uint8)
+        normalized = np.full_like(raw, 128)
+        face = np.array([1, 2, 8, 8, *([0] * 10), 0.75])
+        det, rec = Mock(), Mock()
+        det.detect.return_value = (None, [face])
+        rec.alignCrop.side_effect = lambda image, _face: image
+        rec.feature.return_value = vector().reshape(1, -1)
+        with patch("facelock.recognize._ir_embedding_image", return_value=normalized):
+            result = recognize.embed(raw, det, rec, 0.6, sensor="ir")
+        self.assertIsNotNone(result[0])
+        np.testing.assert_array_equal(rec.alignCrop.call_args.args[0], normalized)
+
+    def test_ir_ambiguous_normalized_detection_retries_raw_alignment(self):
+        from unittest.mock import Mock
+        raw = np.zeros((16, 16, 3), np.uint8)
+        normalized = np.full_like(raw, 128)
+        face = np.array([1, 2, 8, 8, *([0] * 10), 0.75])
+        det, rec = Mock(), Mock()
+        det.detect.side_effect = [(None, [face, face]), (None, [face])]
+        rec.alignCrop.side_effect = lambda image, _face: image
+        rec.feature.return_value = vector().reshape(1, -1)
+        with patch("facelock.recognize._ir_embedding_image", return_value=normalized):
+            result = recognize.embed(raw, det, rec, 0.6, sensor="ir")
+        self.assertIsNotNone(result[0])
+        np.testing.assert_array_equal(rec.alignCrop.call_args.args[0], raw)
+        self.assertEqual(det.detect.call_count, 2)
+
     @staticmethod
     def attention_image(pupil_shift=(0, 0)):
         image = np.full((120, 120, 3), 190, np.uint8)

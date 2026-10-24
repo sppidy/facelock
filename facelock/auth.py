@@ -21,7 +21,8 @@ def enrollment_metadata(cfg):
     # The capability flag only requires a kernel attestation before capture;
     # it does not change the camera pipeline or resulting embeddings.
     runtime = {key: cfg["runtime"][key] for key in ("stack", "tuning")}
-    fields = {"version": "illumination-v2", "cameras": cfg["cameras"],
+    fields = {"version": "illumination-v2", "embedding": "ir-clahe-v1",
+              "cameras": cfg["cameras"],
               "torch": cfg["ir_led"], "required": cfg["auth"]["required_sensors"],
               "mode": cfg["capture"]["mode"], "runtime": runtime,
               "rgb_size": [cfg["dual"]["rgb_width"], cfg["dual"]["rgb_height"]],

@@ -97,8 +97,8 @@ def load_models(model_dir):
     return det, rec
 
 
-def _ir_detection_image(img_bgr):
-    """Build a contrast-stable IR view for YuNet without changing embeddings."""
+def _ir_embedding_image(img_bgr):
+    """Build one stable IR view for both landmarks and SFace alignment."""
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     low, high = np.percentile(gray, (2, 98))
     if not np.isfinite((low, high)).all() or high - low < 8:
@@ -119,12 +119,16 @@ def embed(img_bgr, det, rec, min_score=0.6, attention=None, details=False,
     h, w = img_bgr.shape[:2]
     det.setInputSize((w, h))
     det.setScoreThreshold(float(min_score))
-    detection_img = _ir_detection_image(img_bgr) if sensor == "ir" else img_bgr
+    embedding_img = (_ir_embedding_image(img_bgr) if sensor == "ir" else img_bgr)
+    detection_img = embedding_img
     _, faces = det.detect(detection_img)
-    # Very dark frames can be helped by CLAHE, but a naturally well-exposed IR
-    # frame should still get a chance with the original pixels.
-    if sensor == "ir" and (faces is None or len(faces) == 0) and detection_img is not img_bgr:
-        _, faces = det.detect(img_bgr)
+    # If normalization creates an ambiguous result, retry the original IR
+    # pixels and use that image for alignment too. Never mix landmarks from one
+    # photometric view with embeddings from another.
+    if sensor == "ir" and detection_img is not img_bgr and (faces is None or len(faces) != 1):
+        _, original_faces = det.detect(img_bgr)
+        if original_faces is not None and len(original_faces) == 1:
+            faces, embedding_img = original_faces, img_bgr
     if faces is None or len(faces) == 0:
         result = (None, 0.0, None)
         return (*result, None) if details else result
@@ -143,7 +147,7 @@ def embed(img_bgr, det, rec, min_score=0.6, attention=None, details=False,
         if not attention_detail["ok"]:
             result = (None, score, box)
             return (*result, attention_detail) if details else result
-    aligned = rec.alignCrop(img_bgr, best)
+    aligned = rec.alignCrop(embedding_img, best)
     feat = rec.feature(aligned)
     v = np.asarray(feat, dtype=np.float64).flatten()
     norm = np.linalg.norm(v)
