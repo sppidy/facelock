@@ -14,9 +14,10 @@ capture:
   warmup_sec: 1.0
   timeout_sec: 15
 dual:
-  # CPU SoftISP crops to this size. Keep the full view, resize in acquisition.
-  rgb_width: 1920
-  rgb_height: 1080
+  # YuNet only consumes 640x360; 1280x720 keeps the full view while avoiding
+  # the unnecessary 1920x1080 SoftISP workload on the A14.
+  rgb_width: 1280
+  rgb_height: 720
   buffers: 4
   settle:
     stable: 4
@@ -49,6 +50,10 @@ match:
   rgb_threshold: 0.38
   ir_threshold: 0.30
   detector_min_score: 0.6
+  # IR imagery has lower detector confidence than RGB; later match and
+  # quality gates still decide the final result.
+  rgb_detector_min_score: 0.6
+  ir_detector_min_score: 0.45
 quality:
   min_blur: 25.0
   brightness_range: [15.0, 235.0]

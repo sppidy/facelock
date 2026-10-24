@@ -47,13 +47,15 @@ def main():
                                                 "bgr_mean": img.mean(axis=(0, 1)).round(2).tolist()})
                 continue
             attention_cfg = cfg["attention"] if name == "rgb" else None
+            detector_score = cfg["match"].get(
+                name + "_detector_min_score", cfg["match"]["detector_min_score"])
             vector, score, box, attention = recognize.embed(
-                img, det, rec, cfg["match"]["detector_min_score"],
-                attention=attention_cfg, details=True)
+                img, det, rec, detector_score, attention=attention_cfg,
+                details=True, sensor=name)
             qok, reasons = quality.check(img, box, cfg["quality"])
             result["sources"][name].append({"score": round(score, 3), "face": vector is not None,
                                             "box": box, "quality": qok, "reasons": reasons,
-                                            "mean": round(quality.brightness(img), 2)})
+                                            "mean": round(quality.brightness(img, box), 2)})
             if attention is not None:
                 result["sources"][name][-1]["attention"] = attention
             if name == "rgb" and cfg["depth"]["enabled"]:

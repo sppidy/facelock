@@ -97,7 +97,20 @@ def load_models(model_dir):
     return det, rec
 
 
-def embed(img_bgr, det, rec, min_score=0.6, attention=None, details=False):
+def _ir_detection_image(img_bgr):
+    """Build a contrast-stable IR view for YuNet without changing embeddings."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    low, high = np.percentile(gray, (2, 98))
+    if not np.isfinite((low, high)).all() or high - low < 8:
+        return img_bgr
+    stretched = np.clip((gray.astype(np.float32) - low) * 255.0 / (high - low),
+                        0, 255).astype(np.uint8)
+    enhanced = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(stretched)
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
+def embed(img_bgr, det, rec, min_score=0.6, attention=None, details=False,
+          sensor=None):
     """Return a single-face embedding, score and box.
 
     With ``details=True``, append attention details as a fourth value. The box
@@ -106,7 +119,12 @@ def embed(img_bgr, det, rec, min_score=0.6, attention=None, details=False):
     h, w = img_bgr.shape[:2]
     det.setInputSize((w, h))
     det.setScoreThreshold(float(min_score))
-    _, faces = det.detect(img_bgr)
+    detection_img = _ir_detection_image(img_bgr) if sensor == "ir" else img_bgr
+    _, faces = det.detect(detection_img)
+    # Very dark frames can be helped by CLAHE, but a naturally well-exposed IR
+    # frame should still get a chance with the original pixels.
+    if sensor == "ir" and (faces is None or len(faces) == 0) and detection_img is not img_bgr:
+        _, faces = det.detect(img_bgr)
     if faces is None or len(faces) == 0:
         result = (None, 0.0, None)
         return (*result, None) if details else result

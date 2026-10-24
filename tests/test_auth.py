@@ -121,6 +121,14 @@ class AuthTests(unittest.TestCase):
         self.assertTrue(all(sample["reason"] == "eyes-looking-away"
                             for sample in detail["sources"]["rgb"]["samples"]))
 
+    def test_detector_floor_can_differ_between_rgb_and_ir(self):
+        with patch("facelock.recognize.embed",
+                   return_value=(vector(), 0.9, (0, 0, 32, 32), None)) as embed:
+            auth.extract(self.cfg, None, None, burst())
+        scores = [call.args[3] for call in embed.call_args_list]
+        self.assertEqual(scores[:3], [0.6] * 3)
+        self.assertEqual(scores[3:], [0.45] * 3)
+
     def test_enroll_and_verify_share_pipeline(self):
         refs, detail = auth.enroll(self.cfg, models_fn=self.models, capture_fn=lambda _: burst())
         self.assertEqual(set(refs), {"rgb", "ir"})

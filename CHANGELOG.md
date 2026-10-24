@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Measure blur and brightness inside the detected face instead of the unused
+  dark IR border, so sharp low-light captures are not rejected by frame-wide
+  quality scores.
+- Preprocess IR frames for YuNet detection and use a lower IR-only detector
+  score without changing the RGB detector or the face embedding.
+- Make the IR illumination challenge robust to one noisy exposure while still
+  requiring a majority lit-over-dark response.
+- Reduce the A14 RGB SoftISP input from 1920x1080 to 1280x720; the recognition
+  stage still uses the same 640x360 fitted view.
+
 ## [0.3.0]
 
 ### Added

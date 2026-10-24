@@ -120,9 +120,18 @@ def check_challenge(gray_frames, pattern, min_gap=8.0, roi=None):
               "pattern": [int(p) for p in pattern]}
     if min(len(lit), len(dark)) < 3:
         return False, {**detail, "reason": "pattern-degenerate"}
-    gap = min(lit) - max(dark)
-    ok = gap >= min_gap
+    # A single noisy exposure used to fail the entire challenge because the
+    # old gate compared the darkest lit frame with the brightest dark frame.
+    # Use robust medians plus a pairwise majority check instead: the nonce
+    # still has to produce a repeatable lit-over-dark response, but one bad
+    # frame no longer makes a real user retry.
+    lit = np.asarray(lit, dtype=np.float64)
+    dark = np.asarray(dark, dtype=np.float64)
+    gap = float(np.median(lit) - np.median(dark))
+    pairwise_fraction = float((lit[:, None] > dark[None, :]).mean())
+    ok = gap >= min_gap and pairwise_fraction >= 0.75
     return ok, {**detail, "gap": round(gap, 2),
+                "pairwise_fraction": round(pairwise_fraction, 3),
                 "reason": "ok" if ok else "no-illumination-correlation"}
 
 

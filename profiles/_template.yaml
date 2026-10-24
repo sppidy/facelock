@@ -6,6 +6,9 @@ cameras:
   rgb: /base/soc@0/.../camera@36
 capture:
   mode: sequential
+match:
+  rgb_detector_min_score: 0.6
+  ir_detector_min_score: 0.45
 attention:
   enabled: false  # requires rgb; tune using diagnose.py --json before enabling PAM
 models:

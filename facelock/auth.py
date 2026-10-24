@@ -32,18 +32,20 @@ def extract(cfg, det, rec, burst):
         usable, details = [], []
         for index, img in enumerate(burst.images.get(source, [])):
             attention_cfg = cfg["attention"] if source == "rgb" else None
+            detector_score = cfg["match"].get(
+                source + "_detector_min_score", cfg["match"]["detector_min_score"])
             v, score, box, attention = recognize.embed(
-                img, det, rec, cfg["match"]["detector_min_score"],
-                attention=attention_cfg, details=True)
+                img, det, rec, detector_score, attention=attention_cfg,
+                details=True, sensor=source)
             qok, reasons = quality.check(img, box, cfg["quality"])
             reason = reasons if v is not None else "no-single-face"
             if attention is not None and not attention["ok"]:
                 reason = attention["reason"]
             details.append({"score": round(score, 3), "quality": qok,
                             "face": box is not None,
-                            "blur": round(quality.blur_score(img), 2),
+                            "blur": round(quality.blur_score(img, box), 2),
                             "reason": reason,
-                            "mean": round(quality.brightness(img), 2)})
+                            "mean": round(quality.brightness(img, box), 2)})
             if attention is not None:
                 details[-1]["attention"] = attention
             depth_ok = True

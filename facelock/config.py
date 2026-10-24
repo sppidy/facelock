@@ -23,7 +23,10 @@ DEFAULTS = {
     "attention": {"enabled": False, "max_head_yaw": 0.18, "max_roll_deg": 15.0,
                   "min_head_pitch": 0.30, "max_head_pitch": 0.70,
                   "max_eye_offset": 0.35, "min_eye_contrast": 8.0},
-    "match": {"rgb_threshold": 0.38, "ir_threshold": 0.30, "detector_min_score": 0.6},
+    "match": {"rgb_threshold": 0.38, "ir_threshold": 0.30,
+              "detector_min_score": 0.6,
+              "rgb_detector_min_score": 0.6,
+              "ir_detector_min_score": 0.45},
     "quality": {"min_blur": 25.0, "brightness_range": [15.0, 235.0], "min_face_frac": 0.05},
     "pam": {"user": "", "verify_timeout_sec": 20},
     "models": {"dir": "/usr/share/facelock/models"},
@@ -75,6 +78,8 @@ def validate(cfg):
               (cfg["attention"], "min_eye_contrast", 0, 100),
               (cfg["match"], "detector_min_score", 0.1, 1)]
     limits += [(cfg["match"], s + "_threshold", 0.01, 1) for s in required]
+    limits += [(cfg["match"], s + "_detector_min_score", 0.1, 1)
+               for s in ("rgb", "ir")]
     limits += [(cfg["depth"], "min_distance_m", 0.1, 2),
                (cfg["depth"], "max_distance_m", 0.2, 4),
                (cfg["depth"], "min_valid_fraction", 0.5, 1),

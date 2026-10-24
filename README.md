@@ -50,6 +50,11 @@ saved; declining keeps any existing enrollment. Use `--yes` for an explicit
 noninteractive save. `enrollment.max_bursts` and `enrollment.timeout_sec`
 control the retry limit and overall deadline.
 
+The A14 profiles use separate detector floors for RGB and IR. IR detection
+uses a contrast-normalized view and a lower detection floor because the raw
+mono frame has less detector confidence; the final embedding, face quality,
+illumination and similarity gates are unchanged.
+
 Set `attention.enabled: true` to require a near-frontal RGB face with both eyes
 visible and coarse pupil direction toward the camera. The thresholds under
 `attention` are configurable. This lightweight image heuristic rejects turned

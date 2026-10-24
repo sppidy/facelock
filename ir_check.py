@@ -22,9 +22,12 @@ def main():
         cfg = yaml.safe_load(f)
     img = ir_capture.snapshot_ir(
         cfg["cameras"]["ir"], cfg["ir_led"]["path"],
-        cfg["ir_led"]["brightness"], cfg["ir_capture"]["frames"])
+        cfg["ir_led"]["brightness"], cfg.get("ir_capture", {}).get("frames", 10))
     det, rec = recognize.load_models(cfg["models"]["dir"])
-    v, s, _box = recognize.embed(img, det, rec, cfg["match"]["detector_min_score"])
+    v, s, _box = recognize.embed(
+        img, det, rec, cfg["match"].get("ir_detector_min_score",
+                                         cfg["match"]["detector_min_score"]),
+        sensor="ir")
     print(f"face_score={s:.2f} {'FACE OK' if v is not None else 'NO FACE'}")
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     boost = cv2.createCLAHE(3.0, (8, 8)).apply(gray)

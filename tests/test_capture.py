@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from facelock import acquisition, config, liveness, recognize
+from facelock import acquisition, config, liveness, quality, recognize
 from facelock.dual_capture import CameraSession, Frame, _read_plane, decode_rgb
 from test_auth import settings, vector
 
@@ -27,6 +27,9 @@ class LivenessTests(unittest.TestCase):
         pattern = [0, 1] * 4
         frames = [np.full((4, 4), 150 if lit else 8) for lit in pattern]
         self.assertTrue(liveness.check_challenge(frames, pattern)[0])
+        noisy = list(frames)
+        noisy[1] = np.full((4, 4), 2)
+        self.assertTrue(liveness.check_challenge(noisy, pattern)[0])
         self.assertFalse(liveness.check_challenge(frames[1:] + frames[:1], pattern)[0])
         self.assertFalse(liveness.check_challenge(frames, [1] * 8)[0])
         self.assertFalse(liveness.check_challenge(frames, [2] * 8)[0])
@@ -168,6 +171,19 @@ class PixelTests(unittest.TestCase):
             frames = session.read(time.monotonic() + 1)
         np.testing.assert_array_equal(frames[0].image, [[[30, 20, 10], [60, 50, 40]]])
         self.assertEqual(queued, [req])
+
+
+class QualityTests(unittest.TestCase):
+    def test_face_crop_prevents_flat_ir_background_from_failing_sharp_face(self):
+        image = np.full((400, 400, 3), 4, np.uint8)
+        texture = (np.indices((100, 100)).sum(axis=0) % 2 * 40 + 80).astype(np.uint8)
+        image[150:250, 150:250] = texture[:, :, None]
+        cfg = {"min_blur": 25.0, "brightness_range": [15.0, 235.0],
+               "min_face_frac": 0.05}
+        self.assertLess(quality.blur_score(image), 5000)
+        self.assertGreater(quality.blur_score(image, (150, 150, 100, 100)), 5000)
+        self.assertFalse(quality.check(image, None, cfg)[0])
+        self.assertTrue(quality.check(image, (150, 150, 100, 100), cfg)[0])
 
 
 class RecognitionTests(unittest.TestCase):
